@@ -34,6 +34,8 @@ all of them can be run without the checkout.
   installed by design. Theme checks are now skipped with an explanation instead
   of reported as a hard failure, and the utilities check lists exactly which
   commands are missing.
+- **`honey-badger-theme` now explains itself on Minimal installs** instead of
+  reporting a missing theme, and `apply` refuses with a clear message.
 - **Post-install summary was the same for every profile**: a Minimal install was
   told to reboot and offered `honey-badger-theme`. Reporting is now profile
   aware — CLI guidance for Minimal, desktop guidance (reboot, theme, doctor)
@@ -58,7 +60,7 @@ all of them can be run without the checkout.
 - Utility commands are installed from `assets/` (single source of truth) instead
   of being generated from heredocs, so they are linted and tested like the rest
   of the project.
-- **Tests** — 260 checks (was 240), adding metadata, component-normalisation,
+- **Tests** — 261 checks (was 240), adding metadata, component-normalisation,
   option-coherence, utility dry-run, and profile-aware reporting coverage.
 
 ## [2.4.1] - 2026-10-25

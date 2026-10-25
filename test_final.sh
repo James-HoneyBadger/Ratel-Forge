@@ -928,6 +928,15 @@ EOF
         log_fail "Doctor exited $doctor_status on a Minimal install"
     fi
 
+    log_test "honey-badger-theme explains that Minimal has no theme"
+    local theme_out theme_status=0
+    theme_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-theme" status 2>&1) || theme_status=$?
+    if [[ $theme_status -eq 0 && "$theme_out" == *"No desktop is installed"* ]]; then
+        log_pass "Theme command is profile aware"
+    else
+        log_fail "Theme status was not profile aware: $theme_out"
+    fi
+
     rm -rf "$tmp_dir"
 }
 

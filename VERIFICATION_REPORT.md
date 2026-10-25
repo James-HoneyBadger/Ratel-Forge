@@ -6,8 +6,8 @@ Current results on Linux, Bash 5.3:
 |-------|--------|--------|
 | `verify_scripts.sh` | 157 | ✅ all passed |
 | `verify_advanced.sh` | 28 | ✅ all passed |
-| `test_final.sh` | 75 | ✅ all passed |
-| **Total** | **260** | **✅** |
+| `test_final.sh` | 76 | ✅ all passed |
+| **Total** | **261** | **✅** |
 
 CI additionally runs `shellcheck` on every script, lints both themes for
 structure and contrast, and dry-runs the installer in Arch, Debian, Fedora,

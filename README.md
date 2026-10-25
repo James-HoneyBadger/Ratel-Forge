@@ -395,7 +395,7 @@ bash verify_advanced.sh   # security patterns, dry-run, colour handling
 bash test_final.sh        # sourcing, idempotency, JSON, progress, banner
 ```
 
-The suites cover 260 checks locally and run in CI across seven container images.
+The suites cover 261 checks locally and run in CI across seven container images.
 
 Developer shortcuts:
 

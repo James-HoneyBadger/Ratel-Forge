@@ -65,6 +65,13 @@ show_status() {
     hb_rule
 }
 
+no_desktop_notice() {
+    hb_header "Theme"
+    hb_info "No desktop is installed, so there is no theme to manage."
+    hb_info "Re-run the installer with --type desktop to add one."
+    hb_rule
+}
+
 apply_theme() {
     local requested="${1:-}" theme="Ratel"
     case "$requested" in
@@ -159,6 +166,17 @@ show_palette() {
     done
     hb_rule
 }
+
+if [[ "${HONEY_BADGER_HAS_DESKTOP:-1}" == "0" ]]; then
+    case "${1:-status}" in
+        status) no_desktop_notice; exit 0 ;;
+        apply)
+            hb_err "No desktop is installed; there is no theme to apply."
+            hb_info "Re-run the installer with --type desktop to add one."
+            exit 1
+            ;;
+    esac
+fi
 
 case "${1:-status}" in
     status)   show_status ;;
