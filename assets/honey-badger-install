@@ -55,13 +55,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help) usage; exit 0 ;;
         -r|--remove) ACTION=remove; shift ;;
         -n|--dry-run) DRY_RUN=1; shift ;;
-        -s|--search)
-            ACTION=search
-            shift
-            [[ $# -gt 0 ]] || { printf 'honey-badger-install: --search requires a term\n' >&2; exit 2; }
-            SEARCH_TERM="$*"
-            break
-            ;;
+        -s|--search) ACTION=search; shift ;;
         -*)
             printf 'honey-badger-install: unknown option: %s\n' "$1" >&2
             printf 'Try honey-badger-install --help\n' >&2
@@ -72,6 +66,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$ACTION" == "search" ]]; then
+    # Any remaining words form the search term, so options may come first.
+    if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+        printf 'honey-badger-install: --search requires a term\n' >&2
+        exit 2
+    fi
+    SEARCH_TERM="${PACKAGES[*]}"
     if [[ -z "$HB_PM_SEARCH" ]]; then
         hb_err "Search is not configured for this system"
         exit 1
@@ -79,7 +79,7 @@ if [[ "$ACTION" == "search" ]]; then
     hb_header "Search packages"
     hb_info "Searching for: $SEARCH_TERM"
     if [[ $DRY_RUN -eq 1 ]]; then
-        hb_info "[DRY-RUN] $HB_PM_SEARCH $SEARCH_TERM"
+        hb_info "[DRY-RUN] $HB_PM_SEARCH \"$SEARCH_TERM\""
         exit 0
     fi
     bash -c "$HB_PM_SEARCH \"\$1\"" _ "$SEARCH_TERM" || true
