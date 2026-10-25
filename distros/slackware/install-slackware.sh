@@ -305,8 +305,10 @@ main() {
     hb_phase utilities create_utility_scripts \
         "sudo slackpkg update && sudo slackpkg upgrade-all" \
         "sudo slackpkg install" \
-        "echo 'Manual cleanup recommended on Slackware'"
-    if [[ "$install_type" != "minimal" ]]; then
+        "echo 'Slackware keeps no package cache to clean'" \
+        "slackpkg search" \
+        "sudo slackpkg remove"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

@@ -100,8 +100,14 @@ install type is discarded automatically.
 ./install.sh --type full --components base,desktop,apps
 ```
 
-Components are `base`, `dev`, `desktop`, and `apps`. Omitting `base` skips core
-utilities, so include it unless you know you have them already.
+Components are `base`, `dev`, `desktop`, and `apps`. `base` is always installed
+and is added automatically if you leave it out, so a filter can never produce a
+system without `git`, `curl`, or editor basics. Minimal installs use `base` only;
+`--components` is ignored there and the installer says so.
+
+Narrowing to a list without `desktop` also means no theme, fonts, or desktop
+commands, so `--high-contrast` and `--font-size` are reported as ignored rather
+than quietly advertised in the summary.
 
 ### Skipping components
 
@@ -125,16 +131,29 @@ Available: `--skip-docker`, `--skip-python`, `--skip-node`, `--skip-nano`,
 
 ```bash
 honey-badger-info                     # system, hardware, and install details
+honey-badger-info --json              # same data for scripts and dashboards
 honey-badger-update                   # update packages, Flatpak, Snap; clean cache
+honey-badger-update --dry-run         # show the commands without running them
 honey-badger-install ripgrep          # install packages with the native manager
+honey-badger-install --search ripgrep # search the repositories
+honey-badger-install --remove vim     # remove packages
 honey-badger-theme status             # active theme, icons, wallpaper
 honey-badger-theme palette            # print the palette with swatches
 honey-badger-theme apply              # re-apply the theme live
 honey-badger-theme apply high-contrast
 honey-badger-doctor                   # diagnose theme/settings/runtime issues
+honey-badger-doctor --json            # machine-readable diagnostics
+honey-badger-uninstall                # remove Ratel Forge customizations
 ```
 
-All are in `~/.local/bin` (added to `PATH` in `~/.bashrc`).
+All are in `~/.local/bin` (added to `PATH` in `~/.bashrc`). Bash completion is
+installed for them, so `<Tab>` completes subcommands and flags.
+
+On Minimal installs the theme commands are still installed but there is no
+theme to manage, and `honey-badger-doctor` reports "theme checks skipped"
+instead of failing. `honey-badger-uninstall` removes the theme, the utility
+commands, the generated configuration, and the install metadata — packages stay
+installed, exactly like `uninstall.sh`.
 
 ### What changed
 

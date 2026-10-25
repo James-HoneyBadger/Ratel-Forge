@@ -4,10 +4,10 @@ Current results on Linux, Bash 5.3:
 
 | Suite | Checks | Result |
 |-------|--------|--------|
-| `verify_scripts.sh` | 153 | ✅ all passed |
+| `verify_scripts.sh` | 157 | ✅ all passed |
 | `verify_advanced.sh` | 28 | ✅ all passed |
-| `test_final.sh` | 59 | ✅ all passed |
-| **Total** | **240** | **✅** |
+| `test_final.sh` | 75 | ✅ all passed |
+| **Total** | **260** | **✅** |
 
 CI additionally runs `shellcheck` on every script, lints both themes for
 structure and contrast, and dry-runs the installer in Arch, Debian, Fedora,

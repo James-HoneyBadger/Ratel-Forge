@@ -1,0 +1,29 @@
+#!/bin/bash
+# Ratel Forge — remove Ratel Forge customizations (keeps system packages)
+set -uo pipefail
+
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+TARGET="$HB_SHARE/uninstall.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<'EOF'
+Usage: honey-badger-uninstall [--dry-run]
+
+Removes Ratel Forge customizations: theme files, utility commands,
+generated configuration, and install metadata.
+System packages installed by Ratel Forge are NOT removed.
+
+Options:
+  --dry-run   Show what would be removed
+  -h, --help  Show this help message
+EOF
+    exit 0
+fi
+
+if [[ ! -f "$TARGET" ]]; then
+    printf 'honey-badger-uninstall: uninstaller not found (%s)\n' "$TARGET" >&2
+    printf 'Re-run the installer, or run uninstall.sh from the Ratel Forge checkout.\n' >&2
+    exit 1
+fi
+
+exec bash "$TARGET" "$@"

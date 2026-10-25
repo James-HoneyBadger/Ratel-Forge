@@ -316,7 +316,7 @@ install_assets() {
             -gravity center -annotate +0-60 "RATEL" \
             -font DejaVu-Sans -pointsize 24 -fill "$c_accent" \
             -annotate +0+40 "FEARLESS · DETERMINED · UNCOMPROMISING" \
-            -fill "$c_text" -pointsize 16 -annotate +0+90 "v${HONEY_BADGER_VERSION:-2.4.1}" \
+            -fill "$c_text" -pointsize 16 -annotate +0+90 "v${HONEY_BADGER_VERSION:-2.5.0}" \
             "$tmp_wallpaper" 2>/dev/null && [[ -s "$tmp_wallpaper" ]]; then
             hb_sudo cp "$tmp_wallpaper" "$wallpaper"
             log_success "Generated Ratel Forge wallpaper (${wallpaper_size})"

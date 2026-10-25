@@ -510,6 +510,27 @@ hb_component_allowed() {
     hb_component_enabled "$(hb_component_for_label "$1")"
 }
 
+# Components actually installed by the selected profile. Minimal installs are
+# base-only, so component filters have no effect there.
+hb_effective_components() {
+    if [[ "${HONEY_BADGER_INSTALL_TYPE:-full}" == "minimal" ]]; then
+        printf 'base'
+        return 0
+    fi
+    local out="" c
+    for c in base dev desktop apps; do
+        hb_component_enabled "$c" && out="${out:+$out,}$c"
+    done
+    printf '%s' "${out:-base}"
+}
+
+# True when the selected profile installs a graphical desktop (and therefore
+# the theme, fonts, and desktop-only utilities).
+hb_desktop_enabled() {
+    [[ "${HONEY_BADGER_INSTALL_TYPE:-full}" == "minimal" ]] && return 1
+    hb_component_enabled desktop
+}
+
 # True when any skip flag or component filter is active, which makes the
 # static step budget inaccurate.
 hb_skip_active() {
@@ -588,6 +609,10 @@ hb_json_write() {
     end_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     local distro="${HONEY_BADGER_DISTRO:-unknown}"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
+    local theme_variant="none"
+    if hb_desktop_enabled; then
+        theme_variant="$(hb_theme_name)"
+    fi
 
     # Build JSON arrays safely
     local pkgs_json="" p
@@ -621,6 +646,8 @@ hb_json_write() {
   "honey_badger_version": "$(_hb_json_escape "${HONEY_BADGER_VERSION:-1.0.0}")",
   "distro": "$(_hb_json_escape "$distro")",
   "install_type": "$(_hb_json_escape "$install_type")",
+  "components": "$(_hb_json_escape "$(hb_effective_components)")",
+  "theme_variant": "$(_hb_json_escape "$theme_variant")",
   "status": "${status}",
   "dry_run": ${dry_run},
   "start_time": "${_HB_JSON_START_TIME}",

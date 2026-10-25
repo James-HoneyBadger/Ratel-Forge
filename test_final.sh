@@ -41,6 +41,7 @@ test_syntax_all() {
         assets/honey-badger-install
         assets/honey-badger-theme
         assets/honey-badger-doctor
+        assets/honey-badger-uninstall
         completions/honey-badger.bash
         completions/honey-badger.zsh
         uninstall.sh
@@ -708,6 +709,228 @@ test_manifest_realism() {
     fi
 }
 
+
+# ── Test 29: components always include base ────────────────────────────────
+test_component_normalization() {
+    echo -e "\n=== COMPONENT NORMALIZATION ==="
+    log_test "--components adds the base component and orders the list"
+    local result
+    result=$(
+        source "$SCRIPT_DIR/install.sh"
+        _normalize_components "apps,dev" 2>/dev/null
+        printf '%s' "$_HB_NORMALIZED_COMPONENTS"
+    )
+    if [[ "$result" == "base,dev,apps" ]]; then
+        log_pass "base is added and components are ordered ($result)"
+    else
+        log_fail "unexpected normalized components: '$result'"
+    fi
+}
+
+# ── Test 30: options that do not apply are reported ────────────────────────
+test_option_coherence() {
+    echo -e "\n=== OPTION COHERENCE ==="
+    log_test "Desktop-only options are dropped on a Minimal install"
+    local out
+    out=$(
+        source "$SCRIPT_DIR/install.sh"
+        export HONEY_BADGER_INSTALL_TYPE=minimal
+        export HONEY_BADGER_HIGH_CONTRAST=1
+        export HONEY_BADGER_FONT="Noto Sans 16"
+        _HB_FONT_SIZE_SET=1
+        check_option_coherence minimal
+        printf 'hc=%s font=%s' "${HONEY_BADGER_HIGH_CONTRAST:-unset}" "${HONEY_BADGER_FONT:-unset}"
+    )
+    if [[ "$out" == *"hc=0"* && "$out" == *"font=unset"* ]]; then
+        log_pass "Minimal drops --high-contrast and --font-size"
+    else
+        log_fail "Minimal kept desktop-only options: $out"
+    fi
+}
+
+# ── Test 31: install metadata describes the profile ────────────────────────
+test_install_metadata() {
+    echo -e "\n=== INSTALL METADATA ==="
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    (
+        export HOME="$tmp_dir"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_INSTALL_TYPE=full
+        export HONEY_BADGER_DISTRO=arch
+        export HONEY_BADGER_VERBOSITY=0
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        create_utility_scripts "sudo pacman -Syu --noconfirm" \
+            "sudo pacman -S --needed --noconfirm" \
+            "sudo pacman -Sc --noconfirm" \
+            "pacman -Ss" \
+            "sudo pacman -Rns --noconfirm"
+    ) >/dev/null 2>&1 || true
+
+    local info="$tmp_dir/.local/share/honey-badger/install-info"
+    log_test "Full install records components, desktop, and theme variant"
+    if grep -qx 'HONEY_BADGER_COMPONENTS="base,dev,desktop,apps"' "$info" 2>/dev/null &&
+       grep -qx 'HONEY_BADGER_HAS_DESKTOP=1' "$info" 2>/dev/null &&
+       grep -qx 'HONEY_BADGER_THEME_VARIANT="Ratel"' "$info" 2>/dev/null; then
+        log_pass "install-info describes a desktop install"
+    else
+        log_fail "install-info is missing desktop metadata"
+    fi
+
+    log_test "Package manager commands are recorded for the utilities"
+    if grep -q '^HB_PM_SEARCH=' "$tmp_dir/.local/share/honey-badger/pm.conf" 2>/dev/null &&
+       grep -q '^HB_PM_REMOVE=' "$tmp_dir/.local/share/honey-badger/pm.conf" 2>/dev/null; then
+        log_pass "pm.conf records search and remove commands"
+    else
+        log_fail "pm.conf is missing search/remove commands"
+    fi
+
+    log_test "All utility commands and the uninstaller are installed"
+    local missing=0 cmd
+    for cmd in info update install theme doctor uninstall; do
+        [[ -x "$tmp_dir/.local/bin/honey-badger-$cmd" ]] || missing=$((missing + 1))
+    done
+    if [[ $missing -eq 0 && -f "$tmp_dir/.local/share/honey-badger/uninstall.sh" ]]; then
+        log_pass "Six utility commands plus the uninstaller are present"
+    else
+        log_fail "$missing utility command(s) missing"
+    fi
+
+    log_test "Bash completion is installed"
+    if [[ -f "$tmp_dir/.local/share/bash-completion/completions/honey-badger" ]]; then
+        log_pass "Completion installed for bash-completion"
+    else
+        log_fail "Completion file was not installed"
+    fi
+
+    log_test "honey-badger-info --json emits valid JSON"
+    if HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" "$tmp_dir/.local/bin/honey-badger-info" --json \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["install_type"]=="full" and d["theme_variant"]=="Ratel"' 2>/dev/null; then
+        log_pass "info --json is machine readable"
+    else
+        log_fail "info --json did not produce valid JSON"
+    fi
+
+    log_test "honey-badger-update --dry-run performs no update"
+    local update_out
+    update_out=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
+        "$tmp_dir/.local/bin/honey-badger-update" --dry-run 2>&1 || true)
+    if [[ "$update_out" == *"[DRY-RUN]"* && "$update_out" == *"pacman -Syu"* ]]; then
+        log_pass "update --dry-run prints the commands only"
+    else
+        log_fail "update --dry-run did not report the command: $update_out"
+    fi
+
+    log_test "honey-badger-install --search --dry-run reports the search command"
+    local search_out
+    search_out=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
+        "$tmp_dir/.local/bin/honey-badger-install" --dry-run --search vim 2>&1 || true)
+    if [[ "$search_out" == *"[DRY-RUN]"* && "$search_out" == *"pacman -Ss"* ]]; then
+        log_pass "install --search is wired to the package manager"
+    else
+        log_fail "install --search output unexpected: $search_out"
+    fi
+
+    log_test "honey-badger-doctor --json emits valid JSON"
+    # doctor exits 1 when it finds a problem; only the JSON matters here.
+    if { HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
+        "$tmp_dir/.local/bin/honey-badger-doctor" --json || true; } \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["checks"] and "failures" in d' 2>/dev/null; then
+        log_pass "doctor --json is machine readable"
+    else
+        log_fail "doctor --json did not produce valid JSON"
+    fi
+
+    log_test "honey-badger-doctor passes on a complete desktop install"
+    local doctor_out
+    doctor_out=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
+        "$tmp_dir/.local/bin/honey-badger-doctor" 2>&1 || true)
+    if [[ "$doctor_out" != *"Missing utility command"* ]]; then
+        log_pass "Doctor recognises the installed utilities"
+    else
+        log_fail "Doctor reported missing utilities: $doctor_out"
+    fi
+
+    rm -rf "$tmp_dir"
+}
+
+# ── Test 32: reporting is profile aware ────────────────────────────────────
+test_profile_aware_reporting() {
+    echo -e "\n=== PROFILE-AWARE REPORTING ==="
+    local tmp_dir minimal_out desktop_out
+    tmp_dir=$(mktemp -d)
+
+    minimal_out=$(
+        export HOME="$tmp_dir"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_INSTALL_TYPE=minimal
+        export HONEY_BADGER_VERBOSITY=0
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        show_post_install
+    )
+    desktop_out=$(
+        export HOME="$tmp_dir"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_INSTALL_TYPE=full
+        export HONEY_BADGER_VERBOSITY=0
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        show_post_install
+    )
+
+    log_test "Minimal summary omits desktop-only guidance"
+    if [[ "$minimal_out" != *"sudo reboot"* && "$minimal_out" != *"honey-badger-theme"* \
+          && "$minimal_out" == *"source ~/.bashrc"* ]]; then
+        log_pass "Minimal summary is CLI-focused"
+    else
+        log_fail "Minimal summary still mentions desktop steps"
+    fi
+
+    log_test "Desktop summary includes theme and doctor commands"
+    if [[ "$desktop_out" == *"sudo reboot"* && "$desktop_out" == *"honey-badger-theme"* \
+          && "$desktop_out" == *"honey-badger-doctor"* && "$desktop_out" == *"honey-badger-uninstall"* ]]; then
+        log_pass "Desktop summary lists the full command set"
+    else
+        log_fail "Desktop summary is missing commands"
+    fi
+
+    log_test "Doctor skips theme checks on a Minimal install"
+    mkdir -p "$tmp_dir/.local/share/honey-badger"
+    cat > "$tmp_dir/.local/share/honey-badger/install-info" << 'EOF'
+HONEY_BADGER_VERSION="2.5.0"
+HONEY_BADGER_INSTALL_TYPE="minimal"
+HONEY_BADGER_COMPONENTS="base"
+HONEY_BADGER_HAS_DESKTOP=0
+HONEY_BADGER_THEME_VARIANT="none"
+EOF
+    mkdir -p "$tmp_dir/.local/bin"
+    local cmd
+    for cmd in info update install theme doctor uninstall; do
+        printf '#!/bin/bash\nexit 0\n' > "$tmp_dir/.local/bin/honey-badger-$cmd"
+        chmod 755 "$tmp_dir/.local/bin/honey-badger-$cmd"
+    done
+    local doctor_status=0 doctor_out2=""
+    doctor_out2=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
+        bash "$SCRIPT_DIR/assets/honey-badger-doctor" 2>&1) || doctor_status=$?
+    if [[ "$doctor_out2" == *"theme checks skipped"* && "$doctor_out2" != *"GTK theme"* ]]; then
+        log_pass "Doctor is profile aware (no theme failure on Minimal)"
+    else
+        log_fail "Doctor still checks the theme on Minimal: $doctor_out2"
+    fi
+    if [[ $doctor_status -eq 0 ]]; then
+        log_pass "Doctor exits 0 when only the desktop is missing"
+    else
+        log_fail "Doctor exited $doctor_status on a Minimal install"
+    fi
+
+    rm -rf "$tmp_dir"
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────
 run_final_tests() {
     echo "🦡 Ratel - Final Smoke Tests"
@@ -741,6 +964,10 @@ run_final_tests() {
     test_install_type_selection
     test_profile_disk_requirement
     test_manifest_realism
+    test_component_normalization
+    test_option_coherence
+    test_install_metadata
+    test_profile_aware_reporting
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
     echo -e "\n======================================="

@@ -105,8 +105,8 @@ Options
       --resume               Resume a previous run, skipping completed phases
       --no-banner            Omit the banner
       --ascii                Use ASCII instead of Unicode glyphs
-      --high-contrast        Use the high-contrast theme variant
-      --font-size PX         Desktop font size, 8-24 (default: 10)
+      --high-contrast        Use the high-contrast theme variant (desktop only)
+      --font-size PX         Desktop font size, 8-24 (default: 10, desktop only)
       --no-color             Disable coloured output
   -v, --verbose              Show debug output
   -q, --quiet                Errors only
@@ -122,6 +122,7 @@ Component options
 Group selection
       --components LIST      Comma-separated package groups to install:
                              base, dev, desktop, apps (default: all for the type)
+                             base is always installed; Minimal installs base only
 
 Environment
   HONEY_BADGER_INSTALL_TYPE=full|developer|desktop|minimal
@@ -166,7 +167,7 @@ show_version() {
         codename="$(sed -n 's/^HONEY_BADGER_CODENAME=.*:-*\([^}]*\)}.*$/\1/p' "$conf" | head -n1)"
     fi
 
-    version="${HONEY_BADGER_VERSION:-${version:-2.4.1}}"
+    version="${HONEY_BADGER_VERSION:-${version:-2.5.0}}"
     codename="${HONEY_BADGER_CODENAME:-${codename:-Fearless}}"
 
     printf 'Ratel Forge %s%s\n' "$version" "${codename:+ \"$codename\"}"
@@ -181,6 +182,7 @@ HONEY_BADGER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export HONEY_BADGER_ROOT
 
 CHECK_ONLY=0
+_HB_FONT_SIZE_SET=0
 
 _unknown_option() {
     printf '%s: unknown option: %s\n' "$HB_PROG" "$1" >&2
@@ -214,7 +216,22 @@ _normalize_components() {
         printf '%s: --components requires at least one value\n' "$HB_PROG" >&2
         return 1
     fi
-    _HB_NORMALIZED_COMPONENTS="$out"
+    # base is the floor of every profile; never silently drop it.
+    case ",$out," in
+        *,base,*) ;;
+        *)
+            printf '%s: note: base is always installed; adding it to the component list\n' "$HB_PROG" >&2
+            out="base,$out"
+            ;;
+    esac
+    # Canonical order keeps summaries and resumes stable.
+    local ordered="" c
+    for c in base dev desktop apps; do
+        case ",$out," in
+            *",$c,"*) ordered="${ordered:+$ordered,}$c" ;;
+        esac
+    done
+    _HB_NORMALIZED_COMPONENTS="$ordered"
     return 0
 }
 
@@ -270,12 +287,14 @@ while [[ $# -gt 0 ]]; do
             _validate_font_size "$2"
             export HONEY_BADGER_FONT="Noto Sans $2"
             export HONEY_BADGER_MONO_FONT="Noto Sans Mono $2"
+            _HB_FONT_SIZE_SET=1
             shift 2
             ;;
         --font-size=*)
             _validate_font_size "${1#*=}"
             export HONEY_BADGER_FONT="Noto Sans ${1#*=}"
             export HONEY_BADGER_MONO_FONT="Noto Sans Mono ${1#*=}"
+            _HB_FONT_SIZE_SET=1
             shift
             ;;
         -v|--verbose)       export HONEY_BADGER_VERBOSITY=2; shift ;;
@@ -549,6 +568,45 @@ get_installation_type() {
 }
 
 # ── Summary & confirmation ──────────────────────────────────────────────────
+# Warn about options that cannot apply to the selected profile, and drop them
+# so the summary never advertises work the installer will not do.
+check_option_coherence() {
+    local install_type="$1"
+
+    if [[ "$install_type" == "minimal" ]]; then
+        if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
+            log_warning "--high-contrast has no effect on a Minimal install (no desktop)"
+            HONEY_BADGER_HIGH_CONTRAST=0
+        fi
+        if [[ "$_HB_FONT_SIZE_SET" == "1" ]]; then
+            log_warning "--font-size has no effect on a Minimal install (no desktop)"
+            unset HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT
+        fi
+        if [[ "${HONEY_BADGER_SKIP_THEME:-0}" == "1" ]]; then
+            log_info "--skip-theme is redundant: Minimal installs no theme"
+        fi
+        if [[ -n "${HONEY_BADGER_COMPONENTS:-}" && "${HONEY_BADGER_COMPONENTS}" != "base" ]]; then
+            log_warning "Minimal installs the base component only; ignoring --components"
+            unset HONEY_BADGER_COMPONENTS
+        fi
+        return 0
+    fi
+
+    if ! hb_component_enabled desktop; then
+        if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
+            log_warning "--high-contrast needs the desktop component; ignoring it"
+            HONEY_BADGER_HIGH_CONTRAST=0
+        fi
+        if [[ "$_HB_FONT_SIZE_SET" == "1" ]]; then
+            log_warning "--font-size needs the desktop component; ignoring it"
+            unset HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT
+        fi
+        if [[ "${HONEY_BADGER_SKIP_THEME:-0}" == "1" ]]; then
+            log_info "--skip-theme is redundant: the desktop component is disabled"
+        fi
+    fi
+}
+
 show_installation_summary() {
     local install_type="$1"
 
@@ -556,13 +614,17 @@ show_installation_summary() {
     hb_kv "Distribution" "${HB_DISTRO_LABEL:-unknown} (${HB_DISTRO_FAMILY:-unknown})"
     hb_kv "Architecture" "$(uname -m)"
     hb_kv "Install type" "$(hb_type_label "$install_type")"
+    hb_kv "Components" "$(hb_effective_components)"
     hb_kv "User" "$(whoami) · $HOME"
     hb_kv "Disk" "${_HB_AVAILABLE_GB} GB free · ${_HB_REQUIRED_GB:-?} GB required"
-    [[ -n "${HONEY_BADGER_COMPONENTS:-}" ]] && hb_kv "Components" "$HONEY_BADGER_COMPONENTS"
-    if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
-        hb_kv "Theme" "Ratel-HC (high contrast)"
+    if hb_desktop_enabled; then
+        hb_kv "Theme" "$(hb_theme_name)"
+        if [[ -n "${HONEY_BADGER_FONT:-}" ]]; then
+            hb_kv "Font" "$HONEY_BADGER_FONT"
+        fi
+    else
+        hb_kv "Theme" "none (no desktop)"
     fi
-    [[ -n "${HONEY_BADGER_FONT:-}" ]] && hb_kv "Font" "$HONEY_BADGER_FONT"
     [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && hb_kv "Mode" "dry run (no changes)"
     printf '\n  Planned components:\n'
     hb_type_bullets "$install_type"
@@ -723,6 +785,8 @@ main() {
     local install_type="$HB_SELECTED_TYPE"
     export HONEY_BADGER_INSTALL_TYPE="$install_type"
     log_success "Selected: $(hb_type_label "$install_type") ($(hb_type_size "$install_type"))"
+
+    check_option_coherence "$install_type"
 
     run_preflight_checks
 

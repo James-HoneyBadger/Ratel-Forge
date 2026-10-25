@@ -1,41 +1,117 @@
 #!/bin/bash
-# Ratel Forge — System Information (fallback copy; install.sh generates a richer one)
+# Ratel Forge — system and installation information
 set -uo pipefail
 
-if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
-    ACCENT='' OK='' MUTED='' BOLD='' NC=''
-else
-    ACCENT='\033[38;5;214m'; OK='\033[38;5;113m'
-    MUTED='\033[38;5;245m'; BOLD='\033[1m'; NC='\033[0m'
-fi
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/ui.sh" ]] && source "$HB_SHARE/ui.sh"
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    printf 'Usage: honey-badger-info\n\n'
-    printf 'Shows operating system, hardware, and Ratel details.\n'
-    exit 0
+# Fallback UI helpers keep the command usable if the data directory is gone.
+if ! declare -f hb_header >/dev/null 2>&1; then
+    HB_ACCENT='' HB_OK='' HB_WARN='' HB_ERR='' HB_MUTED='' HB_BOLD='' HB_NC=''
+    hb_rule() { printf '  %s\n' '──────────────────────────────────────────────────────'; }
+    hb_header() { printf '\n  RATEL FORGE  ·  %s\n' "$1"; hb_rule; }
+    hb_kv() { printf '  %-22s %s\n' "$1" "$2"; }
+    hb_ok() { printf '  ✔ %s\n' "$1"; }
+    hb_warn() { printf '  ▲ %s\n' "$1"; }
+    hb_err() { printf '  ✖ %s\n' "$1" >&2; }
+    hb_info() { printf '  • %s\n' "$1"; }
 fi
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/install-info" ]] && source "$HB_SHARE/install-info"
+
+JSON=0
+case "${1:-}" in
+    -h|--help)
+        cat <<'EOF'
+Usage: honey-badger-info [--json]
+
+Shows operating system, hardware, and Ratel Forge installation details.
+
+Options:
+  --json      Machine-readable output for scripts and dashboards
+  -h, --help  Show this help message
+EOF
+        exit 0
+        ;;
+    --json)
+        JSON=1
+        ;;
+    "")
+        ;;
+    *)
+        printf 'honey-badger-info: unknown option: %s\n' "$1" >&2
+        printf 'Try honey-badger-info --help\n' >&2
+        exit 2
+        ;;
+esac
+
+# Values that may be absent when the metadata predates this release.
+version="${HONEY_BADGER_VERSION:-unknown}"
+codename="${HONEY_BADGER_CODENAME:-}"
+install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
+components="${HONEY_BADGER_COMPONENTS:-unknown}"
+distro="${HONEY_BADGER_DISTRO:-unknown}"
+variant="${HONEY_BADGER_THEME_VARIANT:-none}"
+font="${HONEY_BADGER_FONT:-}"
+mono_font="${HONEY_BADGER_MONO_FONT:-}"
+log_file="${HONEY_BADGER_LOG:-}"
 
 os_name="Unknown"
 [[ -r /etc/os-release ]] && os_name="$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-Unknown}")"
 cpu="$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
 memory="$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 " / " $2}' || true)"
 disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 " / " $2 " (" $5 " used)"}' || true)"
+uptime_text="$(uptime -p 2>/dev/null || uptime 2>/dev/null || true)"
+editor_name="${EDITOR:-not set}"
+editor_name="${editor_name##*/}"
 
-kv() { printf '  %s%-20s%s %s\n' "$MUTED" "$1" "$NC" "$2"; }
+if [[ "$JSON" == "1" ]]; then
+    esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g'; }
+    printf '{\n'
+    printf '  "ratel_forge_version": "%s",\n' "$(esc "$version")"
+    printf '  "ratel_forge_codename": "%s",\n' "$(esc "$codename")"
+    printf '  "install_type": "%s",\n' "$(esc "$install_type")"
+    printf '  "components": "%s",\n' "$(esc "$components")"
+    printf '  "distro_family": "%s",\n' "$(esc "$distro")"
+    printf '  "theme_variant": "%s",\n' "$(esc "$variant")"
+    printf '  "ui_font": "%s",\n' "$(esc "$font")"
+    printf '  "mono_font": "%s",\n' "$(esc "$mono_font")"
+    printf '  "log_file": "%s",\n' "$(esc "$log_file")"
+    printf '  "os": "%s",\n' "$(esc "$os_name")"
+    printf '  "kernel": "%s",\n' "$(esc "$(uname -r)")"
+    printf '  "architecture": "%s",\n' "$(esc "$(uname -m)")"
+    printf '  "hostname": "%s",\n' "$(esc "$(hostname 2>/dev/null || echo unknown)")"
+    printf '  "user": "%s",\n' "$(esc "$(whoami)")"
+    printf '  "shell": "%s",\n' "$(esc "${SHELL##*/}")"
+    printf '  "desktop": "%s",\n' "$(esc "${XDG_CURRENT_DESKTOP:-none}")"
+    printf '  "memory": "%s",\n' "$(esc "${memory:-N/A}")"
+    printf '  "disk_root": "%s"\n' "$(esc "${disk:-N/A}")"
+    printf '}\n'
+    exit 0
+fi
 
-printf '\n  %s%sRATEL FORGE%s  %s·%s  %sSystem information%s\n' \
-    "$ACCENT" "$BOLD" "$NC" "$MUTED" "$NC" "$BOLD" "$NC"
-printf '  %s──────────────────────────────────────────────────────%s\n' "$MUTED" "$NC"
-kv "Operating system" "$os_name"
-kv "Kernel"           "$(uname -r)"
-kv "Architecture"     "$(uname -m)"
-kv "Hostname"         "$(hostname 2>/dev/null || echo unknown)"
-kv "User"             "$(whoami)"
-kv "Shell"            "${SHELL##*/}"
-kv "Desktop"          "${XDG_CURRENT_DESKTOP:-none}"
-kv "Uptime"           "$(uptime -p 2>/dev/null || true)"
-kv "Memory"           "${memory:-N/A}"
-kv "Disk (/)"         "${disk:-N/A}"
-[[ -n "$cpu" ]] && kv "Processor" "$(printf '%s' "$cpu" | sed 's/  */ /g')"
-printf '  %s──────────────────────────────────────────────────────%s\n' "$MUTED" "$NC"
-printf '  %s✔%s Ratel Forge — fearless Linux provisioning\n\n' "$OK" "$NC"
+hb_header "System information"
+hb_kv "Operating system" "$os_name"
+hb_kv "Ratel Forge"      "v${version}${codename:+ \"$codename\"}"
+hb_kv "Install type"     "${install_type} (${components})"
+if [[ "$variant" != "none" ]]; then
+    hb_kv "Theme" "${variant}${font:+ · $font}"
+    [[ -n "$mono_font" ]] && hb_kv "Mono font" "$mono_font"
+else
+    hb_kv "Theme" "not installed (no desktop)"
+fi
+hb_rule
+hb_kv "Kernel"       "$(uname -r)"
+hb_kv "Architecture" "$(uname -m)"
+hb_kv "Hostname"     "$(hostname 2>/dev/null || echo unknown)"
+hb_kv "User"         "$(whoami)"
+hb_kv "Shell"        "${SHELL##*/}"
+hb_kv "Desktop"      "${XDG_CURRENT_DESKTOP:-none}"
+hb_kv "Editor"       "$editor_name"
+hb_kv "Uptime"       "${uptime_text#up }"
+hb_kv "Memory"       "${memory:-N/A}"
+hb_kv "Disk (/)"     "${disk:-N/A}"
+[[ -n "$cpu" ]] && hb_kv "Processor" "$(printf '%s' "$cpu" | sed 's/  */ /g')"
+[[ -n "$log_file" ]] && hb_kv "Install log" "$log_file"
+hb_rule

@@ -1,60 +1,106 @@
 #!/bin/bash
-# Ratel Forge — System Update (fallback copy; install.sh generates a distro-aware one)
-set -euo pipefail
+# Ratel Forge — system update
+set -uo pipefail
 
-if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
-    ACCENT='' OK='' ERR='' MUTED='' BOLD='' NC=''
-else
-    ACCENT='\033[38;5;214m'; OK='\033[38;5;113m'; ERR='\033[38;5;203m'
-    MUTED='\033[38;5;245m'; BOLD='\033[1m'; NC='\033[0m'
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/ui.sh" ]] && source "$HB_SHARE/ui.sh"
+
+# Fallback UI helpers keep the command usable if the data directory is gone.
+if ! declare -f hb_header >/dev/null 2>&1; then
+    HB_ACCENT='' HB_OK='' HB_WARN='' HB_ERR='' HB_MUTED='' HB_BOLD='' HB_NC=''
+    hb_rule() { printf '  %s\n' '──────────────────────────────────────────────────────'; }
+    hb_header() { printf '\n  RATEL FORGE  ·  %s\n' "$1"; hb_rule; }
+    hb_kv() { printf '  %-22s %s\n' "$1" "$2"; }
+    hb_ok() { printf '  ✔ %s\n' "$1"; }
+    hb_warn() { printf '  ▲ %s\n' "$1"; }
+    hb_err() { printf '  ✖ %s\n' "$1" >&2; }
+    hb_info() { printf '  • %s\n' "$1"; }
 fi
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/pm.conf" ]] && source "$HB_SHARE/pm.conf"
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    printf 'Usage: honey-badger-update\n\n'
-    printf 'Updates system packages (and Flatpak/Snap when present),\n'
-    printf 'then cleans the package cache.\n'
-    exit 0
-fi
+: "${HB_PM_UPDATE:=}"
+: "${HB_PM_CLEAN:=}"
 
-printf '\n  %s%sRATEL FORGE%s  %s·%s  %sSystem update%s\n\n' \
-    "$ACCENT" "$BOLD" "$NC" "$MUTED" "$NC" "$BOLD" "$NC"
+DRY_RUN=0
+DO_FLATPAK=1
+DO_SNAP=1
+DO_CLEAN=1
 
-run() { printf '  %s•%s %s\n' "$ACCENT" "$NC" "$1"; }
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            cat <<'EOF'
+Usage: honey-badger-update [options]
 
-if command -v pacman >/dev/null 2>&1; then
-    run "Updating with pacman"
-    sudo pacman -Syu --noconfirm
-elif command -v apt-get >/dev/null 2>&1; then
-    run "Updating with apt"
-    sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y
-elif command -v dnf >/dev/null 2>&1; then
-    run "Updating with dnf"
-    sudo dnf update -y && sudo dnf autoremove -y
-elif command -v zypper >/dev/null 2>&1; then
-    run "Updating with zypper"
-    sudo zypper --non-interactive update
-elif command -v xbps-install >/dev/null 2>&1; then
-    run "Updating with xbps"
-    sudo xbps-install -Syu
-elif command -v slackpkg >/dev/null 2>&1; then
-    run "Updating with slackpkg"
-    sudo slackpkg update && sudo slackpkg upgrade-all
-elif command -v emerge >/dev/null 2>&1; then
-    run "Updating with emerge"
-    sudo emerge --sync && sudo emerge -uDN @world
-else
-    printf '  %s✖%s No supported package manager found\n' "$ERR" "$NC" >&2
+Updates system packages, then Flatpak and Snap packages when installed,
+and cleans the package cache. Uses sudo where required.
+
+Options:
+  -n, --dry-run    Show the commands that would run
+      --no-flatpak Do not update Flatpak packages
+      --no-snap    Do not refresh Snap packages
+      --no-clean   Do not clean the package cache
+  -h, --help       Show this help message
+EOF
+            exit 0
+            ;;
+        -n|--dry-run) DRY_RUN=1 ;;
+        --no-flatpak) DO_FLATPAK=0 ;;
+        --no-snap)    DO_SNAP=0 ;;
+        --no-clean)   DO_CLEAN=0 ;;
+        *)
+            printf 'honey-badger-update: unknown option: %s\n' "$1" >&2
+            printf 'Try honey-badger-update --help\n' >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+run() {
+    local label="$1" cmd="$2"
+    [[ -n "$cmd" ]] || return 0
+    if [[ $DRY_RUN -eq 1 ]]; then
+        hb_info "[DRY-RUN] $label: $cmd"
+        return 0
+    fi
+    hb_info "$label"
+    bash -c "$cmd"
+}
+
+hb_header "System update"
+[[ $DRY_RUN -eq 1 ]] && hb_info "Dry run: nothing will change"
+
+if [[ -z "$HB_PM_UPDATE" ]]; then
+    hb_err "No update command recorded for this system ($HB_SHARE/pm.conf)"
     exit 1
 fi
 
-if command -v flatpak >/dev/null 2>&1; then
-    run "Updating Flatpak packages"
-    sudo flatpak update -y || true
+if ! run "Updating system packages…" "$HB_PM_UPDATE"; then
+    hb_err "System package update failed"
+    exit 1
 fi
 
-if command -v snap >/dev/null 2>&1; then
-    run "Refreshing Snap packages"
-    sudo snap refresh || true
+if [[ $DO_FLATPAK -eq 1 ]] && command -v flatpak >/dev/null 2>&1; then
+    run "Updating Flatpak packages…" "sudo flatpak update -y" || hb_warn "Flatpak update skipped"
 fi
 
-printf '\n  %s✔%s System update complete\n\n' "$OK" "$NC"
+if [[ $DO_SNAP -eq 1 ]] && command -v snap >/dev/null 2>&1; then
+    run "Refreshing Snap packages…" "sudo snap refresh" || hb_warn "Snap refresh skipped"
+fi
+
+if [[ $DO_CLEAN -eq 1 && -n "$HB_PM_CLEAN" ]]; then
+    run "Cleaning package cache…" "$HB_PM_CLEAN" || hb_warn "Cache cleanup skipped"
+fi
+
+hb_rule
+if [[ -f /run/reboot-required || -f /var/run/reboot-required ]]; then
+    hb_warn "A reboot is required to finish applying updates"
+fi
+if [[ $DRY_RUN -eq 1 ]]; then
+    hb_ok "Dry run complete"
+else
+    hb_ok "System update complete"
+fi

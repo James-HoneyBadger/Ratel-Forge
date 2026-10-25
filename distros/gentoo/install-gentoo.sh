@@ -155,10 +155,12 @@ main() {
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
     hb_phase utilities create_utility_scripts \
-        "sudo emerge --sync && sudo emerge --update --deep @world" \
-        "sudo emerge --ask" \
-        "sudo emerge --depclean && sudo eclean-dist --deep"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo emerge --sync && sudo emerge --update --deep --changed-use @world" \
+        "sudo emerge --noreplace" \
+        "sudo emerge --depclean && sudo eclean-dist --deep" \
+        "emerge --search" \
+        "sudo emerge --unmerge"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

@@ -170,8 +170,10 @@ main() {
     hb_phase utilities create_utility_scripts \
         "sudo xbps-install -Syu" \
         "sudo xbps-install -y" \
-        "sudo xbps-remove -Oo"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo xbps-remove -Oo" \
+        "xbps-query -Rs" \
+        "sudo xbps-remove -R"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

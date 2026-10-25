@@ -24,12 +24,16 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 Usage: uninstall.sh [--dry-run]
 
 Removes Ratel Forge customizations:
-  • Utility scripts (~/.local/bin/honey-badger-*)
+  • Utility commands (~/.local/bin/honey-badger-*)
+  • Shell completion (~/.local/share/bash-completion/completions/honey-badger)
   • Theme files (~/.themes/Ratel, ~/.icons/Ratel, /usr/share/themes/Ratel)
   • Desktop appearance settings created by the installer
   • Nano configuration (~/.nanorc, ~/.nano/)
   • Restores backed-up config files (.hb-backup -> original)
   • Clears Ratel Forge data (~/.local/share/honey-badger/)
+
+This script is also installed as `honey-badger-uninstall`, so removal works
+without the Ratel Forge checkout.
 
 Options:
   --dry-run   Show what would be removed without actually doing it
@@ -107,7 +111,8 @@ do_restore_backup() {
 
 # ── Remove utility scripts ──────────────────────────────────────────────────
 log_info "Checking Ratel Forge utility scripts..."
-for script in honey-badger-info honey-badger-update honey-badger-install; do
+for script in honey-badger-info honey-badger-update honey-badger-install \
+              honey-badger-theme honey-badger-doctor honey-badger-uninstall; do
     do_remove "$HOME/.local/bin/$script"
 done
 
@@ -174,7 +179,11 @@ if [[ -f "$MANIFEST" ]]; then
     done < "$MANIFEST"
 fi
 
-# ── Remove Honey Badger data directory ──────────────────────────────────────
+# ── Remove shell completion ─────────────────────────────────────────────────
+log_info "Checking shell completion..."
+do_remove "${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions/honey-badger"
+
+# ── Remove Ratel Forge data directory ──────────────────────────────────────
 log_info "Checking Ratel Forge data..."
 do_remove "$HOME/.local/share/honey-badger"
 

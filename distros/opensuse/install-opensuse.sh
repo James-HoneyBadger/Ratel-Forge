@@ -176,8 +176,10 @@ main() {
     hb_phase utilities create_utility_scripts \
         "sudo zypper --non-interactive update" \
         "sudo zypper --non-interactive install" \
-        "sudo zypper --non-interactive clean --all"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo zypper --non-interactive clean --all" \
+        "zypper search" \
+        "sudo zypper --non-interactive remove"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

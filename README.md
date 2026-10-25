@@ -217,7 +217,7 @@ The installer uses one design system from start to finish:
   │ Fearless Linux provisioning                                │
   │                                                            │
   ╰────────────────────────────────────────────────────────────╯
-  🦡  v2.4.1 "Fearless" · dry-run
+  🦡  v2.5.0 "Fearless" · dry-run
 
   ── Choose an installation type ─────────────────────────────
 
@@ -308,15 +308,24 @@ Implementation notes:
 
 | Command | What it does |
 |---------|--------------|
-| `honey-badger-info` | OS, kernel, hardware, uptime, disk, desktop, and Ratel version |
-| `honey-badger-update` | Update system packages, then Flatpak/Snap, then clean the cache |
+| `honey-badger-info [--json]` | OS, kernel, hardware, install type, components, theme |
+| `honey-badger-update [--dry-run]` | Update system packages, Flatpak/Snap, then clean the cache |
 | `honey-badger-install <pkg…>` | Install packages with the native package manager |
+| `honey-badger-install --search <term>` | Search the repositories |
+| `honey-badger-install --remove <pkg…>` | Remove packages |
 | `honey-badger-theme [status\|apply\|list\|palette]` | Inspect, switch, or preview the theme |
-| `honey-badger-doctor` | Diagnose theme, settings, utilities, and runtime issues |
+| `honey-badger-doctor [--json]` | Diagnose theme, settings, utilities, and runtime issues |
+| `honey-badger-uninstall` | Remove Ratel Forge customizations (keeps packages) |
 
-All three source a shared `~/.local/share/honey-badger/ui.sh`, so they look and
-behave like the installer, and read install metadata from
-`~/.local/share/honey-badger/install-info`.
+Every command sources a shared `~/.local/share/honey-badger/ui.sh`, so they look
+and behave like the installer. They read install metadata from
+`install-info`, and package-manager commands from `pm.conf`, so the same
+utilities work on all seven families.
+
+`honey-badger-doctor` is profile-aware: theme checks are skipped on Minimal
+installs, where no desktop exists. Both `info` and `doctor` accept `--json` for
+dashboards and scripts, and bash completion is installed to
+`~/.local/share/bash-completion/completions/honey-badger`.
 
 ## Architecture
 
@@ -371,7 +380,9 @@ install.sh                       Entry point: flags, checks, dispatch
   of work, so `--resume` skips only what finished — and refuses to reuse state
   from a different distro or install type.
 - **Components narrow a profile.** `--components base,dev,desktop,apps` filters
-  package groups and the desktop/dev setup that depends on them.
+  package groups and the desktop/dev setup that depends on them. `base` is
+  always included, and options that need a desktop are dropped with a warning
+  when the desktop component is not selected.
 - **Themes are generated, then linted.** The high-contrast variant is derived
   from the base stylesheet and both are checked for structure, selectors, and
   WCAG contrast in CI.
@@ -384,7 +395,7 @@ bash verify_advanced.sh   # security patterns, dry-run, colour handling
 bash test_final.sh        # sourcing, idempotency, JSON, progress, banner
 ```
 
-The suites cover 240 checks locally and run in CI across seven container images.
+The suites cover 260 checks locally and run in CI across seven container images.
 
 Developer shortcuts:
 

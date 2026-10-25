@@ -5,6 +5,62 @@ All notable changes to Ratel (formerly Honey Badger OS) are documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-10-25
+
+Post-install polish: the utilities now describe what was actually installed and
+all of them can be run without the checkout.
+
+### Added
+- **`honey-badger-uninstall`** — the uninstaller is installed alongside the
+  other commands, so removal no longer requires the repository. It removes the
+  theme, all six commands, generated configuration, and install metadata; system
+  packages are deliberately left alone.
+- **`honey-badger-info --json`** and **`honey-badger-doctor --json`** — the same
+  data as the human-readable output, for scripts and dashboards.
+- **`honey-badger-update` options**: `--dry-run`, `--no-flatpak`, `--no-snap`,
+  `--no-clean`, plus a reboot-required notice.
+- **`honey-badger-install` actions**: `--search <term>` and `--remove`, in
+  addition to installing, each with `--dry-run`.
+- **Bash completion** is now installed to
+  `~/.local/share/bash-completion/completions/honey-badger`.
+- **Metadata**: `install-info` records the effective components, whether a
+  desktop is installed, the theme variant, fonts, and the install log;
+  `pm.conf` records update/install/clean/search/remove commands.
+- **Install summary JSON** gains `components` and `theme_variant`, and the
+  schema requires them.
+
+### Fixed
+- **`honey-badger-doctor` failed on Minimal installs** because no theme is
+  installed by design. Theme checks are now skipped with an explanation instead
+  of reported as a hard failure, and the utilities check lists exactly which
+  commands are missing.
+- **Post-install summary was the same for every profile**: a Minimal install was
+  told to reboot and offered `honey-badger-theme`. Reporting is now profile
+  aware — CLI guidance for Minimal, desktop guidance (reboot, theme, doctor)
+  only when a desktop was installed.
+- **`--components` could silently drop the base group**, leaving a system
+  without `git`, `curl`, or a package manager client. `base` is now always
+  included, listed first, and the addition is noted.
+- **Options that cannot apply are no longer advertised**: `--high-contrast`,
+  `--font-size`, and `--skip-theme` on a Minimal install (or with the `desktop`
+  component disabled) now produce a clear warning instead of appearing in the
+  summary as if they would take effect.
+- **Slackware and Gentoo utility commands**: `slackpkg` cleanup was a bare
+  `echo`, and `emerge --ask` blocked the generated installer command. Both are
+  now non-interactive, and every family records a real search and remove
+  command.
+- **Utilities no longer break if the data directory is deleted**: they fall back
+  to inline UI helpers instead of failing with `command not found`.
+- **`uninstall.sh` missed the newer commands** (`honey-badger-theme`,
+  `-doctor`, `-uninstall`) and the installed completion file.
+
+### Changed
+- Utility commands are installed from `assets/` (single source of truth) instead
+  of being generated from heredocs, so they are linted and tested like the rest
+  of the project.
+- **Tests** — 260 checks (was 240), adding metadata, component-normalisation,
+  option-coherence, utility dry-run, and profile-aware reporting coverage.
+
 ## [2.4.1] - 2026-10-25
 
 ### Fixed

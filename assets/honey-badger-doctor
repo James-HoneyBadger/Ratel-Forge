@@ -1,5 +1,6 @@
 #!/bin/bash
-# Ratel Forge Doctor — diagnose a Ratel Forge installation (fallback copy)
+# shellcheck disable=SC2088  # Tilde strings are human-readable labels, not paths
+# Ratel Forge Doctor — diagnose a Ratel Forge installation
 set -uo pipefail
 
 HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
@@ -20,27 +21,79 @@ else
     hb_info() { printf '  • %s\n' "$1"; }
 fi
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    printf 'Usage: honey-badger-doctor\n\n'
-    printf 'Checks the theme, settings, utilities, and common runtime pitfalls.\n'
-    printf 'Exits non-zero when a hard failure is found.\n'
-    exit 0
-fi
+JSON=0
+case "${1:-}" in
+    -h|--help)
+        cat <<'EOF'
+Usage: honey-badger-doctor [--json]
+
+Checks the theme, settings, utilities, and common runtime pitfalls.
+Theme checks are skipped automatically on installs without a desktop.
+
+Exits 0 when no blocking problem is found, 1 otherwise.
+
+Options:
+  --json      Machine-readable report
+  -h, --help  Show this help message
+EOF
+        exit 0
+        ;;
+    --json)
+        JSON=1
+        ;;
+    "")
+        ;;
+    *)
+        printf 'honey-badger-doctor: unknown option: %s\n' "$1" >&2
+        printf 'Try honey-badger-doctor --help\n' >&2
+        exit 2
+        ;;
+esac
 
 failures=0
 warnings=0
 
-ok()   { hb_ok "$1"; }
-warn() { hb_warn "$1"; warnings=$((warnings + 1)); }
-fail() { hb_err "$1"; failures=$((failures + 1)); }
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+_json=""
+_record() {
+    [[ -n "$_json" ]] && _json+=$',\n'
+    _json+="    {\"status\": \"$1\", \"message\": \"$(_esc "$2")\"}"
+}
+
+ok()   { [[ "$JSON" == "1" ]] || hb_ok "$1";   _record ok "$1"; }
+warn() { [[ "$JSON" == "1" ]] || hb_warn "$1"; _record warn "$1"; warnings=$((warnings + 1)); }
+fail() { [[ "$JSON" == "1" ]] || hb_err "$1";  _record fail "$1"; failures=$((failures + 1)); }
+skip() { [[ "$JSON" == "1" ]] || hb_info "$1"; _record skipped "$1"; }
+
+install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
+has_desktop="${HONEY_BADGER_HAS_DESKTOP:-}"
+expected_theme="${HONEY_BADGER_THEME_VARIANT:-Ratel}"
+
+# Older metadata has no HONEY_BADGER_HAS_DESKTOP; fall back to the type.
+if [[ -z "$has_desktop" ]]; then
+    [[ "$install_type" == "minimal" ]] && has_desktop=0 || has_desktop=1
+fi
+
+check_metadata() {
+    if [[ -r "$HB_SHARE/install-info" ]]; then
+        ok "Install metadata present (${install_type})"
+    else
+        fail "Install metadata missing ($HB_SHARE/install-info)"
+    fi
+}
 
 check_theme() {
-    if [[ -d "$HOME/.themes/Ratel" ]]; then
-        ok "GTK theme installed (user)"
-    elif [[ -d /usr/share/themes/Ratel ]]; then
-        warn "GTK theme installed system-wide only (no ~/.themes/Ratel)"
+    if [[ "$has_desktop" != "1" ]]; then
+        skip "Desktop not installed: theme checks skipped"
+        return 0
+    fi
+
+    if [[ -d "$HOME/.themes/$expected_theme" ]]; then
+        ok "GTK theme installed ($expected_theme, user)"
+    elif [[ -d "/usr/share/themes/$expected_theme" ]]; then
+        warn "GTK theme installed system-wide only (no ~/.themes/$expected_theme)"
     else
-        fail "Ratel GTK theme is not installed"
+        fail "GTK theme '$expected_theme' is not installed (run: honey-badger-theme apply)"
     fi
 
     if [[ -f "$HOME/.icons/Ratel/index.theme" ]]; then
@@ -50,10 +103,12 @@ check_theme() {
     fi
 
     local ini="$HOME/.config/gtk-3.0/settings.ini"
-    if [[ -r "$ini" ]] && grep -q '^gtk-theme-name=Ratel' "$ini"; then
-        ok "GTK3 settings point at Ratel"
+    if [[ -r "$ini" ]] && grep -q "^gtk-theme-name=$expected_theme\$" "$ini"; then
+        ok "GTK3 settings select $expected_theme"
+    elif [[ -r "$ini" ]]; then
+        warn "GTK3 settings do not select $expected_theme (run: honey-badger-theme apply)"
     else
-        warn "GTK3 settings do not select Ratel (run honey-badger-theme apply)"
+        warn "GTK3 settings file missing (~/.config/gtk-3.0/settings.ini)"
     fi
 
     if [[ -f "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml" ]]; then
@@ -64,67 +119,85 @@ check_theme() {
 }
 
 check_utilities() {
-    local missing=0 cmd
-    for cmd in honey-badger-info honey-badger-update honey-badger-install; do
-        command -v "$cmd" >/dev/null 2>&1 || missing=$((missing + 1))
+    local -a expected=(info update install theme doctor uninstall)
+    local -a missing=()
+    local name
+    for name in "${expected[@]}"; do
+        command -v "honey-badger-$name" >/dev/null 2>&1 || missing+=("honey-badger-$name")
     done
-    if [[ $missing -eq 0 ]]; then
-        ok "Utility commands are on PATH"
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        ok "All ${#expected[@]} utility commands are on PATH"
     else
-        warn "$missing utility command(s) not on PATH (add ~/.local/bin)"
+        fail "Missing utility command(s): ${missing[*]}"
+        [[ ":$PATH:" != *":$HOME/.local/bin:"* ]] && \
+            warn "~/.local/bin is not on PATH (add: export PATH=\"\$HOME/.local/bin:\$PATH\")"
     fi
 
-    if [[ -r "$HB_SHARE/install-info" ]]; then
-        ok "Install metadata present"
+    if [[ ":$PATH:" == *":$HOME/.local/bin:"* ]]; then
+        ok "~/.local/bin is on PATH"
     else
-        fail "Install metadata missing ($HB_SHARE/install-info)"
+        warn "~/.local/bin is not on PATH"
     fi
 }
 
 check_runtime() {
     if command -v git >/dev/null 2>&1; then
-        if git config --global user.email >/dev/null 2>&1; then
+        if [[ -n "$(git config --global user.email 2>/dev/null)" ]]; then
             ok "Git identity configured"
         else
             warn "Git identity is not configured"
         fi
-    else
-        warn "git is not installed"
     fi
 
     if command -v docker >/dev/null 2>&1; then
         if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
-            ok "Docker installed and user in docker group"
+            ok "Docker installed and user is in the docker group"
         else
             warn "Docker installed but user is not in the docker group"
         fi
     fi
 
-    if [[ -w "${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger" ]]; then
+    if [[ -w "$HB_SHARE" ]]; then
         ok "Data directory is writable"
     else
-        warn "Data directory is not writable"
+        warn "Data directory is not writable ($HB_SHARE)"
     fi
 
-    local pm
+    local pm found=0
     for pm in pacman apt-get dnf zypper xbps-install slackpkg emerge; do
         if command -v "$pm" >/dev/null 2>&1; then
             ok "Package manager: $pm"
-            return 0
+            found=1
+            break
         fi
     done
-    fail "No supported package manager found"
+    [[ $found -eq 1 ]] || fail "No supported package manager found"
+
+    if [[ -f /run/reboot-required || -f /var/run/reboot-required ]]; then
+        warn "A reboot is required to finish applying updates"
+    fi
 }
 
-hb_header "Diagnostics"
+if [[ "$JSON" != "1" ]]; then
+    hb_header "Diagnostics"
+    hb_kv "Install type" "${install_type} (${HONEY_BADGER_COMPONENTS:-unknown})"
+fi
+check_metadata
 check_theme
 check_utilities
 check_runtime
-hb_rule
-printf '  %s failure(s), %s warning(s)\n' "$failures" "$warnings"
+
+if [[ "$JSON" == "1" ]]; then
+    printf '{\n  "install_type": "%s",\n  "failures": %s,\n  "warnings": %s,\n  "checks": [\n%s\n  ]\n}\n' \
+        "$(_esc "$install_type")" "$failures" "$warnings" "$_json"
+else
+    hb_rule
+    printf '  %s failure(s), %s warning(s)\n' "$failures" "$warnings"
+fi
 
 if [[ $failures -gt 0 ]]; then
-    hb_err "Doctor found problems that need attention"
+    [[ "$JSON" == "1" ]] || hb_err "Doctor found problems that need attention"
     exit 1
 fi
-hb_ok "No blocking problems found"
+[[ "$JSON" == "1" ]] || hb_ok "No blocking problems found"
+exit 0

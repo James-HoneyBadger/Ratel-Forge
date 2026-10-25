@@ -15,7 +15,9 @@
     "end_time",
     "packages_installed",
     "configs_changed",
-    "errors"
+    "errors",
+    "components",
+    "theme_variant"
   ],
   "properties": {
     "honey_badger_version": {
@@ -28,11 +30,29 @@
     },
     "install_type": {
       "type": "string",
-      "enum": ["full", "developer", "desktop", "minimal", "unknown"]
+      "enum": [
+        "full",
+        "developer",
+        "desktop",
+        "minimal",
+        "unknown"
+      ]
+    },
+    "components": {
+      "type": "string",
+      "description": "Comma-separated components actually installed (base, dev, desktop, apps)"
+    },
+    "theme_variant": {
+      "type": "string",
+      "description": "Installed theme variant, or none when no desktop is installed"
     },
     "status": {
       "type": "string",
-      "enum": ["success", "partial", "dry-run"],
+      "enum": [
+        "success",
+        "partial",
+        "dry-run"
+      ],
       "description": "partial means at least one non-fatal error was recorded"
     },
     "dry_run": {
@@ -48,15 +68,21 @@
     },
     "packages_installed": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "configs_changed": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "errors": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

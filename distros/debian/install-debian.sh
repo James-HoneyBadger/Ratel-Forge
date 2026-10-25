@@ -286,8 +286,10 @@ main() {
     hb_phase utilities create_utility_scripts \
         "sudo apt update && sudo apt upgrade -y" \
         "sudo apt install -y" \
-        "sudo apt autoremove -y && sudo apt autoclean"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo apt autoremove -y && sudo apt autoclean" \
+        "apt-cache search" \
+        "sudo apt purge -y"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

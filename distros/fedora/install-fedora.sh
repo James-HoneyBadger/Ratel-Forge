@@ -173,8 +173,10 @@ main() {
     hb_phase utilities create_utility_scripts \
         "sudo $pm update -y" \
         "sudo $pm install -y" \
-        "sudo $pm autoremove -y && sudo $pm clean all"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo $pm autoremove -y && sudo $pm clean all" \
+        "$pm search" \
+        "sudo $pm remove -y"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

@@ -1,58 +1,131 @@
 #!/bin/bash
-# Ratel Forge — Package Installer (fallback copy; install.sh generates a distro-aware one)
-set -euo pipefail
+# Ratel Forge — install, search, or remove packages
+set -uo pipefail
 
-if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
-    ACCENT='' OK='' ERR='' MUTED='' BOLD='' NC=''
-else
-    ACCENT='\033[38;5;214m'; OK='\033[38;5;113m'; ERR='\033[38;5;203m'
-    MUTED='\033[38;5;245m'; BOLD='\033[1m'; NC='\033[0m'
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/ui.sh" ]] && source "$HB_SHARE/ui.sh"
+
+# Fallback UI helpers keep the command usable if the data directory is gone.
+if ! declare -f hb_header >/dev/null 2>&1; then
+    HB_ACCENT='' HB_OK='' HB_WARN='' HB_ERR='' HB_MUTED='' HB_BOLD='' HB_NC=''
+    hb_rule() { printf '  %s\n' '──────────────────────────────────────────────────────'; }
+    hb_header() { printf '\n  RATEL FORGE  ·  %s\n' "$1"; hb_rule; }
+    hb_kv() { printf '  %-22s %s\n' "$1" "$2"; }
+    hb_ok() { printf '  ✔ %s\n' "$1"; }
+    hb_warn() { printf '  ▲ %s\n' "$1"; }
+    hb_err() { printf '  ✖ %s\n' "$1" >&2; }
+    hb_info() { printf '  • %s\n' "$1"; }
 fi
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/pm.conf" ]] && source "$HB_SHARE/pm.conf"
+
+: "${HB_PM_INSTALL:=}"
+: "${HB_PM_REMOVE:=}"
+: "${HB_PM_SEARCH:=}"
 
 usage() {
-    printf 'Usage: honey-badger-install <package> [package...]\n\n'
-    printf 'Installs packages with the native package manager.\n'
-    printf 'Example: honey-badger-install firefox vlc gimp\n'
+    cat <<'EOF'
+Usage: honey-badger-install [options] <package> [package...]
+       honey-badger-install --search <term>
+       honey-badger-install --remove <package> [package...]
+
+Installs, searches for, or removes packages with the native package manager.
+
+Options:
+  -s, --search <term>    Search the repositories
+  -r, --remove           Remove the named packages
+  -n, --dry-run          Show the command without running it
+  -h, --help             Show this help message
+
+Examples:
+  honey-badger-install firefox vlc
+  honey-badger-install --search image editor
+  honey-badger-install --remove thunderbird
+EOF
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    usage
+ACTION=install
+DRY_RUN=0
+SEARCH_TERM=""
+PACKAGES=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -r|--remove) ACTION=remove; shift ;;
+        -n|--dry-run) DRY_RUN=1; shift ;;
+        -s|--search)
+            ACTION=search
+            shift
+            [[ $# -gt 0 ]] || { printf 'honey-badger-install: --search requires a term\n' >&2; exit 2; }
+            SEARCH_TERM="$*"
+            break
+            ;;
+        -*)
+            printf 'honey-badger-install: unknown option: %s\n' "$1" >&2
+            printf 'Try honey-badger-install --help\n' >&2
+            exit 2
+            ;;
+        *) PACKAGES+=("$1"); shift ;;
+    esac
+done
+
+if [[ "$ACTION" == "search" ]]; then
+    if [[ -z "$HB_PM_SEARCH" ]]; then
+        hb_err "Search is not configured for this system"
+        exit 1
+    fi
+    hb_header "Search packages"
+    hb_info "Searching for: $SEARCH_TERM"
+    if [[ $DRY_RUN -eq 1 ]]; then
+        hb_info "[DRY-RUN] $HB_PM_SEARCH $SEARCH_TERM"
+        exit 0
+    fi
+    bash -c "$HB_PM_SEARCH \"\$1\"" _ "$SEARCH_TERM" || true
+    hb_rule
     exit 0
 fi
-if [[ $# -eq 0 ]]; then
+
+if [[ ${#PACKAGES[@]} -eq 0 ]]; then
     usage >&2
     exit 1
 fi
 
-for arg in "$@"; do
+for arg in "${PACKAGES[@]}"; do
     if [[ ! "$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*$ ]]; then
-        printf '  %s✖%s Invalid package name: %s\n' "$ERR" "$NC" "$arg" >&2
-        printf '  Names may contain letters, digits, dots, hyphens, underscores, plus signs, and colons.\n' >&2
+        hb_err "Invalid package name: $arg"
+        printf '  Package names may contain letters, digits, dots, hyphens, underscores, plus signs, and colons.\n' >&2
         exit 1
     fi
 done
 
-printf '\n  %s%sRATEL FORGE%s  %s·%s  %sInstall packages%s\n' \
-    "$ACCENT" "$BOLD" "$NC" "$MUTED" "$NC" "$BOLD" "$NC"
-printf '  %s•%s %s\n\n' "$ACCENT" "$NC" "$*"
-
-if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -S --noconfirm "$@"
-elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get install -y "$@"
-elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y "$@"
-elif command -v zypper >/dev/null 2>&1; then
-    sudo zypper --non-interactive install "$@"
-elif command -v xbps-install >/dev/null 2>&1; then
-    sudo xbps-install -y "$@"
-elif command -v slackpkg >/dev/null 2>&1; then
-    for pkg in "$@"; do sudo slackpkg install "$pkg"; done
-elif command -v emerge >/dev/null 2>&1; then
-    sudo emerge --ask=n "$@"
+if [[ "$ACTION" == "remove" ]]; then
+    cmd="${HB_PM_REMOVE:-}"
+    [[ -n "$cmd" ]] || { hb_err "Package removal is not configured for this system"; exit 1; }
+    hb_header "Remove packages"
+    progress="Removing"
+    finished="Packages removed"
 else
-    printf '  %s✖%s No supported package manager found\n' "$ERR" "$NC" >&2
-    exit 1
+    cmd="${HB_PM_INSTALL:-}"
+    [[ -n "$cmd" ]] || { hb_err "Package installation is not configured for this system"; exit 1; }
+    hb_header "Install packages"
+    progress="Installing"
+    finished="Packages installed"
 fi
 
-printf '\n  %s✔%s Packages installed\n\n' "$OK" "$NC"
+if [[ $DRY_RUN -eq 1 ]]; then
+    hb_info "[DRY-RUN] $cmd ${PACKAGES[*]}"
+    hb_rule
+    hb_ok "Nothing to do (dry run)"
+    exit 0
+fi
+
+hb_info "$progress: ${PACKAGES[*]}"
+if bash -c "$cmd \"\$@\"" _ "${PACKAGES[@]}"; then
+    hb_rule
+    hb_ok "$finished"
+else
+    hb_err "Package ${ACTION} failed"
+    exit 1
+fi

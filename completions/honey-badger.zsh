@@ -32,7 +32,10 @@ _install_sh() {
 
 _honey_badger_install() {
     _arguments \
-        '--help[Show help and exit]' \
+        '(-h --help)'{-h,--help}'[Show help and exit]' \
+        '(-s --search)'{-s,--search}'[Search the repositories]:term:' \
+        '(-r --remove)'{-r,--remove}'[Remove the named packages]' \
+        '(-n --dry-run)'{-n,--dry-run}'[Show the command only]' \
         '*:package:_honey_badger_packages'
 }
 
@@ -49,7 +52,19 @@ _honey_badger_packages() {
 }
 
 _honey_badger_simple() {
-    _arguments '--help[Show help and exit]'
+    case "${words[1]##*/}" in
+        honey-badger-update)
+            _arguments '(-n --dry-run)'{-n,--dry-run}'[Show the commands only]' \
+                '--no-flatpak[Skip Flatpak]' '--no-snap[Skip Snap]' '--no-clean[Skip cache cleanup]' \
+                '(-h --help)'{-h,--help}'[Show help and exit]'
+            ;;
+        honey-badger-uninstall)
+            _arguments '--dry-run[Show what would be removed]' '(-h --help)'{-h,--help}'[Show help and exit]'
+            ;;
+        *)
+            _arguments '--json[Machine-readable output]' '(-h --help)'{-h,--help}'[Show help and exit]'
+            ;;
+    esac
 }
 
 _honey_badger_theme() {
@@ -62,3 +77,4 @@ compdef _honey_badger_simple honey-badger-update
 compdef _honey_badger_simple honey-badger-info
 compdef _honey_badger_simple honey-badger-doctor
 compdef _honey_badger_theme honey-badger-theme
+compdef _honey_badger_simple honey-badger-uninstall

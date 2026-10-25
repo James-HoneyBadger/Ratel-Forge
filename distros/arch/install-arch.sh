@@ -201,9 +201,11 @@ main() {
     hb_phase nano setup_nano
     hb_phase utilities create_utility_scripts \
         "sudo pacman -Syu --noconfirm" \
-        "sudo pacman -S --noconfirm" \
-        "sudo pacman -Sc --noconfirm"
-    if [[ "$install_type" != "minimal" ]]; then
+        "sudo pacman -S --needed --noconfirm" \
+        "sudo pacman -Sc --noconfirm" \
+        "pacman -Ss" \
+        "sudo pacman -Rns --noconfirm"
+    if hb_desktop_enabled; then
         if ! hb_skip_component "theme"; then
             hb_phase theme setup_honey_badger_theme
             hb_phase assets install_assets

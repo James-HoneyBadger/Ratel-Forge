@@ -39,10 +39,16 @@ complete -F _honey_badger_install_sh ./install.sh
 
 # Completion for honey-badger-install (package names from the system)
 _honey_badger_pkg_install() {
-    local cur
+    local cur prev
     cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    if [[ "$prev" == "--search" || "$prev" == "-s" ]]; then
+        COMPREPLY=()
+        return 0
+    fi
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--help" -- "$cur"))
+        local opts="--search --remove --dry-run --help -s -r -n -h"
+        COMPREPLY=($(compgen -W "$opts" -- "$cur"))
         return 0
     fi
     if command -v apt-cache >/dev/null 2>&1; then
@@ -55,15 +61,22 @@ _honey_badger_pkg_install() {
 }
 complete -F _honey_badger_pkg_install honey-badger-install
 
-# Completion for honey-badger-update / honey-badger-info
+# Completion for update / info / doctor / uninstall
 _honey_badger_simple() {
-    local cur
+    local cur words="--help"
     cur="${COMP_WORDS[COMP_CWORD]}"
-    COMPREPLY=($(compgen -W "--help" -- "$cur"))
+    case "${COMP_WORDS[0]##*/}" in
+        honey-badger-update)    words="--dry-run --no-flatpak --no-snap --no-clean --help -n -h" ;;
+        honey-badger-info)      words="--json --help -h" ;;
+        honey-badger-doctor)    words="--json --help -h" ;;
+        honey-badger-uninstall) words="--dry-run --help -h" ;;
+    esac
+    COMPREPLY=($(compgen -W "$words" -- "$cur"))
 }
 complete -F _honey_badger_simple honey-badger-update
 complete -F _honey_badger_simple honey-badger-info
 complete -F _honey_badger_simple honey-badger-doctor
+complete -F _honey_badger_simple honey-badger-uninstall
 
 # Completion for honey-badger-theme
 _honey_badger_theme() {

@@ -170,7 +170,8 @@ test_required_functions() {
                          "hb_check_network" "hb_backup_file" "hb_acquire_lock"
                          "hb_register_temp" "hb_skip_component" "log_debug"
                          "hb_rollback_init" "hb_load_checkpoint" "hb_clear_checkpoint"
-                         "hb_show_banner" "hb_init_distro_log" "hb_enable_service")
+                         "hb_show_banner" "hb_init_distro_log" "hb_enable_service"
+                         "hb_component_enabled" "hb_effective_components" "hb_desktop_enabled")
         for func in "${lib_funcs[@]}"; do
             if grep -qE "^${func}\s*\(\)" lib/common.sh lib/*.sh; then
                 log_pass "shared library has '$func'"

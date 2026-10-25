@@ -3,8 +3,9 @@
 # shellcheck disable=SC2088  # Tilde strings are human-readable labels, not paths
 # Ratel Forge - Utility command generation and post-install report
 # ---------------------------------------------------------------------------
-# Generates honey-badger-info/update/install plus their shared UI module, and
-# renders the post-install summary.
+# Installs honey-badger-* commands from assets/, writes their metadata
+# (install-info, pm.conf, palette.env, ui.sh), and renders the post-install
+# summary.
 #
 # Sourced by lib/common.sh; do not source directly.
 # ---------------------------------------------------------------------------
@@ -14,14 +15,22 @@
 readonly _HB_UTILITIES_LOADED=1
 
 # ── Utility script creation ──────────────────────────────────────────────────
-# Creates distro-aware utility scripts. Caller must pass the package manager
-# commands as arguments.
-#   create_utility_scripts <pm_update_cmd> <pm_install_cmd> <pm_clean_cmd>
-# E.g.: create_utility_scripts "sudo pacman -Syu --noconfirm" "sudo pacman -S --noconfirm" "sudo pacman -Sc --noconfirm"
+# Creates distro-aware utility scripts. Caller passes the package manager
+# commands, which are recorded in ~/.local/share/honey-badger/pm.conf so the
+# installed commands stay data-driven.
+#   create_utility_scripts <update> <install> <clean> [search] [remove]
+# E.g.: create_utility_scripts \
+#           "sudo pacman -Syu --noconfirm" \
+#           "sudo pacman -S --needed --noconfirm" \
+#           "sudo pacman -Sc --noconfirm" \
+#           "pacman -Ss" \
+#           "sudo pacman -Rns --noconfirm"
 create_utility_scripts() {
-    local pm_update_cmd="${1:-echo 'No package manager update command configured'}"
-    local pm_install_cmd="${2:-echo 'No package manager install command configured'}"
-    local pm_clean_cmd="${3:-echo 'No package manager clean command configured'}"
+    local pm_update_cmd="${1:-}"
+    local pm_install_cmd="${2:-}"
+    local pm_clean_cmd="${3:-}"
+    local pm_search_cmd="${4:-}"
+    local pm_remove_cmd="${5:-}"
 
     hb_next_step "Creating Ratel Forge utility scripts..."
 
@@ -78,59 +87,37 @@ hb_err()  { printf '  %s✖%s %s\n' "$HB_ERR" "$HB_NC" "$1" >&2; }
 hb_info() { printf '  %s•%s %s\n' "$HB_ACCENT" "$HB_NC" "$1"; }
 EOF
 
-    # ── Install metadata (read by the utilities) ──
+    # ── Package manager commands used by update/install ──
+    cat > "$share_dir/pm.conf" << ENDPM
+# Ratel Forge package manager commands — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
+HB_PM_UPDATE=${pm_update_cmd@Q}
+HB_PM_INSTALL=${pm_install_cmd@Q}
+HB_PM_CLEAN=${pm_clean_cmd@Q}
+HB_PM_SEARCH=${pm_search_cmd@Q}
+HB_PM_REMOVE=${pm_remove_cmd@Q}
+ENDPM
+
+    # ── Install metadata (read by every utility) ──
+    local components variant="none" has_desktop=0
+    components="$(hb_effective_components)"
+    if hb_desktop_enabled && ! hb_skip_component theme; then
+        variant="$(hb_theme_name)"
+        has_desktop=1
+    fi
     cat > "$share_dir/install-info" << ENDINFO
 # Ratel Forge install metadata — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
-HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-2.4.1}"
+HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-2.5.0}"
 HONEY_BADGER_CODENAME="${HONEY_BADGER_CODENAME:-Fearless}"
 HONEY_BADGER_INSTALL_TYPE="${HONEY_BADGER_INSTALL_TYPE:-full}"
+HONEY_BADGER_COMPONENTS="${components}"
+HONEY_BADGER_HAS_DESKTOP=${has_desktop}
+HONEY_BADGER_THEME_VARIANT="${variant}"
+HONEY_BADGER_FONT="${HONEY_BADGER_FONT:-Noto Sans 10}"
+HONEY_BADGER_MONO_FONT="${HONEY_BADGER_MONO_FONT:-Noto Sans Mono 10}"
 HONEY_BADGER_DISTRO="${HONEY_BADGER_DISTRO:-unknown}"
 HONEY_BADGER_BUILD_DATE="${HONEY_BADGER_BUILD_DATE:-unknown}"
+HONEY_BADGER_LOG="${LOG_FILE:-unknown}"
 ENDINFO
-
-    # ── honey-badger-info ──
-    cat > "$bin_dir/honey-badger-info" << 'EOF'
-#!/bin/bash
-# Ratel Forge System Information
-set -uo pipefail
-
-HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
-# shellcheck source=/dev/null
-[[ -r "$HB_SHARE/ui.sh" ]] && source "$HB_SHARE/ui.sh"
-# shellcheck source=/dev/null
-[[ -r "$HB_SHARE/install-info" ]] && source "$HB_SHARE/install-info"
-
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    printf 'Usage: honey-badger-info\n\n'
-    printf 'Shows operating system, hardware, and Ratel Forge details.\n'
-    exit 0
-fi
-
-os_name="Unknown"
-[[ -r /etc/os-release ]] && os_name="$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-Unknown}")"
-cpu="$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
-memory="$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 " / " $2}' || true)"
-disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 " / " $2 " (" $5 " used)"}' || true)"
-uptime_text="$(uptime -p 2>/dev/null || uptime 2>/dev/null || true)"
-editor_name="${EDITOR:-not set}"
-editor_name="${editor_name##*/}"
-
-hb_header "System information"
-hb_kv "Operating system" "$os_name"
-hb_kv "Ratel Forge"     "v${HONEY_BADGER_VERSION:-unknown} \"${HONEY_BADGER_CODENAME:-}\" (${HONEY_BADGER_INSTALL_TYPE:-unknown})"
-hb_kv "Kernel"           "$(uname -r)"
-hb_kv "Architecture"     "$(uname -m)"
-hb_kv "Hostname"         "$(hostname 2>/dev/null || echo unknown)"
-hb_kv "User"             "$(whoami)"
-hb_kv "Shell"            "${SHELL##*/}"
-hb_kv "Desktop"          "${XDG_CURRENT_DESKTOP:-none}"
-hb_kv "Editor"           "$editor_name"
-hb_kv "Uptime"           "${uptime_text#up }"
-hb_kv "Memory"           "${memory:-N/A}"
-hb_kv "Disk (/)"         "${disk:-N/A}"
-[[ -n "$cpu" ]] && hb_kv "Processor" "$(printf '%s' "$cpu" | sed 's/  */ /g')"
-hb_rule
-EOF
 
     # ── Palette metadata (read by honey-badger-theme --palette) ──
     cat > "$share_dir/palette.env" << ENDPALETTE
@@ -148,88 +135,30 @@ RATEL_SUCCESS="${HONEY_BADGER_THEME_SUCCESS:-#79b96f}"
 RATEL_INFO="${HONEY_BADGER_THEME_INFO:-#6aa9e0}"
 ENDPALETTE
 
-    # ── honey-badger-theme / honey-badger-doctor (shipped as assets) ──
-    cp "$HONEY_BADGER_ROOT/assets/honey-badger-theme" "$bin_dir/honey-badger-theme"
-    cp "$HONEY_BADGER_ROOT/assets/honey-badger-doctor" "$bin_dir/honey-badger-doctor"
+    # ── Utility commands (single source of truth: assets/) ──
+    local utility
+    for utility in info update install theme doctor uninstall; do
+        local src="$HONEY_BADGER_ROOT/assets/honey-badger-$utility"
+        if [[ -f "$src" ]]; then
+            install -m 755 "$src" "$bin_dir/honey-badger-$utility"
+        else
+            log_warning "Utility source missing: $src"
+        fi
+    done
 
-    # ── honey-badger-update ──
-    cat > "$bin_dir/honey-badger-update" << ENDUPDATE
-#!/bin/bash
-# Ratel Forge System Update Script
-set -euo pipefail
-
-HB_SHARE="\${XDG_DATA_HOME:-\$HOME/.local/share}/honey-badger"
-# shellcheck source=/dev/null
-[[ -r "\$HB_SHARE/ui.sh" ]] && source "\$HB_SHARE/ui.sh"
-
-if [[ "\${1:-}" == "--help" || "\${1:-}" == "-h" ]]; then
-    printf 'Usage: honey-badger-update\n\n'
-    printf 'Updates system packages, then Flatpak and Snap (when present),\n'
-    printf 'and cleans the package cache. Uses sudo where required.\n'
-    exit 0
-fi
-
-hb_header "System update"
-hb_info "Updating system packages…"
-${pm_update_cmd}
-
-if command -v flatpak >/dev/null 2>&1; then
-    hb_info "Updating Flatpak packages…"
-    sudo flatpak update -y 2>/dev/null || hb_warn "Flatpak update skipped"
-fi
-
-if command -v snap >/dev/null 2>&1; then
-    hb_info "Refreshing Snap packages…"
-    sudo snap refresh 2>/dev/null || hb_warn "Snap refresh skipped"
-fi
-
-hb_info "Cleaning package cache…"
-${pm_clean_cmd}
-
-hb_rule
-hb_ok "System update complete"
-ENDUPDATE
-
-    # ── honey-badger-install ──
-    cat > "$bin_dir/honey-badger-install" << ENDINSTALL
-#!/bin/bash
-# Ratel Forge Package Install Script
-set -euo pipefail
-
-HB_SHARE="\${XDG_DATA_HOME:-\$HOME/.local/share}/honey-badger"
-# shellcheck source=/dev/null
-[[ -r "\$HB_SHARE/ui.sh" ]] && source "\$HB_SHARE/ui.sh"
-
-if [[ "\${1:-}" == "--help" || "\${1:-}" == "-h" || \$# -eq 0 ]]; then
-    printf 'Usage: honey-badger-install <package> [package...]\n\n'
-    printf 'Installs packages with the native package manager.\n'
-    printf 'Example: honey-badger-install firefox vlc gimp\n'
-    [[ "\${1:-}" == "--help" || "\${1:-}" == "-h" ]] && exit 0
-    exit 1
-fi
-
-for arg in "\$@"; do
-    if [[ ! "\$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*\$ ]]; then
-        hb_err "Invalid package name: \$arg"
-        printf '  Package names may contain letters, digits, dots, hyphens, underscores, plus signs, and colons.\n' >&2
-        exit 1
+    # The uninstaller is self-contained; ship it so removal works without the checkout.
+    if [[ -f "$HONEY_BADGER_ROOT/uninstall.sh" ]]; then
+        install -m 644 "$HONEY_BADGER_ROOT/uninstall.sh" "$share_dir/uninstall.sh"
     fi
-done
 
-hb_header "Install packages"
-hb_info "Installing: \$*"
-if ${pm_install_cmd} "\$@"; then
-    hb_rule
-    hb_ok "Packages installed"
-else
-    hb_err "Package installation failed"
-    exit 1
-fi
-ENDINSTALL
-
-    chmod 755 "$bin_dir/honey-badger-info" "$bin_dir/honey-badger-update" \
-        "$bin_dir/honey-badger-install" "$bin_dir/honey-badger-theme" \
-        "$bin_dir/honey-badger-doctor"
+    # ── Shell completion (loaded automatically by bash-completion) ──
+    local completion_dir
+    completion_dir="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions"
+    if [[ -f "$HONEY_BADGER_ROOT/completions/honey-badger.bash" ]]; then
+        mkdir -p "$completion_dir"
+        install -m 644 "$HONEY_BADGER_ROOT/completions/honey-badger.bash" \
+            "$completion_dir/honey-badger"
+    fi
 
     hb_json_add_config "~/.local/bin/honey-badger-*"
     hb_json_add_config "~/.local/share/honey-badger/install-info"
@@ -241,8 +170,13 @@ show_post_install() {
     [[ "${_HB_POST_INSTALL_SHOWN:-0}" == "1" ]] && return 0
     _HB_POST_INSTALL_SHOWN=1
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    local version="${HONEY_BADGER_VERSION:-2.4.1}"
+    local version="${HONEY_BADGER_VERSION:-2.5.0}"
     local codename="${HONEY_BADGER_CODENAME:-}"
+    local desktop=0 variant="none"
+    if hb_desktop_enabled; then
+        desktop=1
+        variant="$(hb_theme_name)"
+    fi
 
     printf '\n'
     hb_rule
@@ -251,26 +185,39 @@ show_post_install() {
     hb_rule
 
     hb_section "Next steps"
-    if [[ "$install_type" != "minimal" ]]; then
+    if [[ $desktop -eq 1 ]]; then
         printf '  %b1.%b Reboot to start your new desktop environment\n' "$HB_ACCENT" "$NC"
         printf '     %bsudo reboot%b\n' "$HB_ACCENT_ALT" "$NC"
         printf '  %b2.%b After login, run %bhoney-badger-info%b to verify the setup\n' \
             "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
+        printf '  %b3.%b Try another palette later: %bhoney-badger-theme list%b\n' \
+            "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
     else
         printf '  %b1.%b Reload your shell: %bsource ~/.bashrc%b\n' \
             "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
-        printf '  %b2.%b Try the enhanced editor: %bnano%b\n' \
+        printf '  %b2.%b Verify the setup: %bhoney-badger-info%b\n' \
             "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
+        printf '  %b3.%b Add a desktop later by re-running the installer with\n' \
+            "$HB_ACCENT" "$NC"
+        printf '     %b--type desktop%b\n' "$HB_ACCENT_ALT" "$NC"
     fi
 
     hb_section "Commands"
-    hb_kv "honey-badger-info"    "show system and install details" 22
-    hb_kv "honey-badger-update"  "update system and packages"      22
-    hb_kv "honey-badger-install" "install additional packages"     22
+    hb_kv "honey-badger-info"    "system and install details" 22
+    hb_kv "honey-badger-update"  "update system and packages"  22
+    hb_kv "honey-badger-install" "install, search, or remove"  22
+    if [[ $desktop -eq 1 ]]; then
+        hb_kv "honey-badger-theme" "switch themes and palettes" 22
+        hb_kv "honey-badger-doctor" "diagnose the installation" 22
+    fi
+    hb_kv "honey-badger-uninstall" "remove Ratel Forge customizations" 22
 
     hb_section "Details"
-    hb_kv "Installation log" "$LOG_FILE" 22
-    hb_kv "Uninstall"        "bash uninstall.sh" 22
+    hb_kv "Install type"     "$install_type ($(hb_effective_components))" 22
+    if [[ "$variant" != "none" ]]; then
+        hb_kv "Theme" "$variant" 22
+    fi
+    hb_kv "Installation log" "${LOG_FILE:-unknown}" 22
     hb_rule
 
     # Write machine-readable summary if the JSON helpers are available

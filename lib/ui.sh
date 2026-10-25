@@ -243,7 +243,7 @@ hb_dry_run() {
 hb_show_banner() {
     local distro_name="${1:-}"
     local subtitle="${2:-Fearless Linux configuration}"
-    local version="${HONEY_BADGER_VERSION:-2.4.1}"
+    local version="${HONEY_BADGER_VERSION:-2.5.0}"
     local codename="${HONEY_BADGER_CODENAME:-}"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-}"
 
