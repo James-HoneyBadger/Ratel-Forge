@@ -6,11 +6,11 @@ _honey_badger_install_sh() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local types="full developer desktop minimal"
+    local types="full developer apps minimal"
     local opts="--help --version --type --install-type --list-types --dry-run
-        --yes --non-interactive --check --resume --components --high-contrast --font-size --no-banner --ascii --no-color
-        --verbose --quiet --skip-docker --skip-python --skip-node --skip-nano
-        --skip-theme --no-theme --skip-git -h -V -t -n -y -v -q"
+        --yes --non-interactive --check --resume --components --no-banner --ascii --no-color
+        --verbose --quiet --skip-docker --skip-python --skip-node --skip-nano --skip-shell
+        --skip-git -h -V -t -n -y -v -q"
 
     case "$prev" in
         --type|--install-type|-t)
@@ -18,11 +18,7 @@ _honey_badger_install_sh() {
             return 0
             ;;
         --components)
-            COMPREPLY=($(compgen -W "base dev desktop apps" -- "${cur##*,}"))
-            return 0
-            ;;
-        --font-size)
-            COMPREPLY=($(compgen -W "9 10 11 12 14 16" -- "$cur"))
+            COMPREPLY=($(compgen -W "base dev apps" -- "${cur##*,}"))
             return 0
             ;;
     esac
@@ -46,8 +42,12 @@ _honey_badger_pkg_install() {
         COMPREPLY=()
         return 0
     fi
+    if [[ "$prev" == "--file" || "$prev" == "-f" ]]; then
+        COMPREPLY=($(compgen -f -- "$cur"))
+        return 0
+    fi
     if [[ "$cur" == -* ]]; then
-        local opts="--search --remove --dry-run --help -s -r -n -h"
+        local opts="--search --remove --file --dry-run --help -s -r -f -n -h"
         COMPREPLY=($(compgen -W "$opts" -- "$cur"))
         return 0
     fi
@@ -69,6 +69,7 @@ _honey_badger_simple() {
         honey-badger-update)    words="--dry-run --no-flatpak --no-snap --no-clean --help -n -h" ;;
         honey-badger-info)      words="--json --help -h" ;;
         honey-badger-doctor)    words="--json --help -h" ;;
+        honey-badger-report)    words="--output --no-log --help -h" ;;
         honey-badger-uninstall) words="--dry-run --help -h" ;;
     esac
     COMPREPLY=($(compgen -W "$words" -- "$cur"))
@@ -76,12 +77,5 @@ _honey_badger_simple() {
 complete -F _honey_badger_simple honey-badger-update
 complete -F _honey_badger_simple honey-badger-info
 complete -F _honey_badger_simple honey-badger-doctor
+complete -F _honey_badger_simple honey-badger-report
 complete -F _honey_badger_simple honey-badger-uninstall
-
-# Completion for honey-badger-theme
-_honey_badger_theme() {
-    local cur
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    COMPREPLY=($(compgen -W "status apply list palette --help" -- "$cur"))
-}
-complete -F _honey_badger_theme honey-badger-theme

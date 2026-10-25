@@ -15,7 +15,7 @@ hb_type_label() {
     case "$1" in
         full)      printf 'Full' ;;
         developer) printf 'Developer' ;;
-        desktop)   printf 'Desktop' ;;
+        apps)      printf 'Applications' ;;
         minimal)   printf 'Minimal' ;;
         *)         printf '%s' "$1" ;;
     esac
@@ -23,46 +23,46 @@ hb_type_label() {
 
 hb_type_size() {
     case "$1" in
-        full)      printf '6-9 GB' ;;
+        full)      printf '5-8 GB' ;;
         developer) printf '2-4 GB' ;;
-        desktop)   printf '3-5 GB' ;;
-        minimal)   printf '0.3-0.8 GB' ;;
+        apps)      printf '3-5 GB' ;;
+        minimal)   printf '0.5-1.0 GB' ;;
     esac
 }
 
 hb_type_blurb() {
     case "$1" in
-        full)      printf 'Everything: desktop, toolchain, office, media' ;;
-        developer) printf 'Toolchain, containers, editors, XFCE desktop' ;;
-        desktop)   printf 'XFCE, browsers, office, media, basic dev tools' ;;
-        minimal)   printf 'CLI tools only, no desktop or GUI apps' ;;
+        full)      printf 'Everything: toolchains, containers, editors, apps' ;;
+        developer) printf 'Toolchain, containers, editors, CLI utilities' ;;
+        apps)      printf 'GUI developer applications, browsers, media' ;;
+        minimal)   printf 'CLI tools only, no GUI applications' ;;
     esac
 }
 
 hb_type_bullets() {
     case "$1" in
         full)
-            printf '    • Complete XFCE desktop with networking, audio, and fonts\n'
+            printf '    • Core CLI utilities (git, curl, tmux, rsync, nmap)\n'
             printf '    • Full development stack (Python, Node.js, Go, Rust, Java, Ruby)\n'
-            printf '    • Containers, editors, and database clients\n'
-            printf '    • Productivity suite (LibreOffice, GIMP, VLC, Firefox)\n'
-            printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
+            printf '    • Containers, editors, database clients, and shell tooling\n'
+            printf '    • GUI developer applications (IDEs, API clients, browsers, DB tools)\n'
+            printf '    • Git identity, Docker, nano, and Ratel Forge utilities\n'
             ;;
         developer)
-            printf '    • Languages, build tools, containers, and editors\n'
-            printf '    • XFCE desktop with networking, audio, and fonts\n'
-            printf '    • No office suite or media applications\n'
-            printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
+            printf '    • Core CLI utilities (git, curl, tmux, rsync, nmap)\n'
+            printf '    • Languages, build tools, containers, editors, and DB clients\n'
+            printf '    • Git identity, Docker, nano, and Ratel Forge utilities\n'
+            printf '    • No GUI applications\n'
             ;;
-        desktop)
-            printf '    • Complete XFCE desktop with networking, audio, and fonts\n'
-            printf '    • Browsers, office, and media applications\n'
-            printf '    • Basic development tools\n'
-            printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
+        apps)
+            printf '    • Core CLI utilities (git, curl, tmux, rsync, nmap)\n'
+            printf '    • GUI developer applications (IDEs, API clients, browsers, DB tools)\n'
+            printf '    • Media and document applications\n'
+            printf '    • No language toolchains or build tools\n'
             ;;
         minimal)
             printf '    • CLI tools, monitoring, nano, and Ratel Forge commands\n'
-            printf '    • No desktop, audio stack, fonts, or GUI applications\n'
+            printf '    • No GUI applications, audio stack, or fonts\n'
             printf '    • Suitable for servers, containers, and remote hosts\n'
             ;;
     esac
@@ -71,8 +71,8 @@ hb_type_bullets() {
 print_install_types() {
     printf 'Install types\n\n'
     local number=1 type
-    for type in full developer desktop minimal; do
-        printf '  %s  %-10s %-12s %s\n' \
+    for type in full developer apps minimal; do
+        printf '  %s  %-13s %-10s %s\n' \
             "$number" "$(hb_type_label "$type")" "$(hb_type_size "$type")" "$(hb_type_blurb "$type")"
         number=$((number + 1))
     done
@@ -88,15 +88,15 @@ Usage
   install.sh [options]
 
 Install types
-  full         Complete XFCE desktop, full development stack, applications
-  developer    Languages, containers, editors, and an XFCE core desktop
-  desktop      XFCE desktop with productivity applications
-  minimal      Command-line essentials, no desktop environment
+  full         Full development stack, CLI utilities, and developer applications
+  developer    Languages, build tools, containers, and editors
+  apps         GUI developer applications and browsers (no toolchains)
+  minimal      Command-line essentials, no GUI applications
 
 Options
   -h, --help                 Show this help and exit
   -V, --version              Show version information and exit
-  -t, --type TYPE            Install type: full, developer, desktop, minimal
+  -t, --type TYPE            Install type: full, developer, apps, minimal
       --list-types           Print the install types and exit
   -n, --dry-run              Simulate the install without changing anything
   -y, --yes                  Assume yes for the confirmation prompt
@@ -105,8 +105,6 @@ Options
       --resume               Resume a previous run, skipping completed phases
       --no-banner            Omit the banner
       --ascii                Use ASCII instead of Unicode glyphs
-      --high-contrast        Use the high-contrast theme variant (desktop only)
-      --font-size PX         Desktop font size, 8-24 (default: 10, desktop only)
       --no-color             Disable coloured output
   -v, --verbose              Show debug output
   -q, --quiet                Errors only
@@ -116,21 +114,20 @@ Component options
       --skip-python          Skip Python development setup
       --skip-node            Skip Node.js development setup
       --skip-nano            Skip nano configuration
-      --skip-theme           Skip theme and wallpaper installation
+      --skip-shell           Skip shell and CLI tool configuration
       --skip-git             Skip Git identity configuration
 
 Group selection
       --components LIST      Comma-separated package groups to install:
-                             base, dev, desktop, apps (default: all for the type)
+                             base, dev, apps (default: all for the type)
                              base is always installed; Minimal installs base only
 
 Environment
-  HONEY_BADGER_INSTALL_TYPE=full|developer|desktop|minimal
+  HONEY_BADGER_INSTALL_TYPE=full|developer|apps|minimal
   HONEY_BADGER_DRY_RUN=1, HONEY_BADGER_NONINTERACTIVE=1
   HONEY_BADGER_ASSUME_YES=1
   HONEY_BADGER_GIT_USERNAME, HONEY_BADGER_GIT_EMAIL
   HONEY_BADGER_LOG_COUNT=5, HONEY_BADGER_NETWORK_TIMEOUT=3
-  HONEY_BADGER_WALLPAPER_SIZE=1920x1080
   HONEY_BADGER_NPM_GLOBAL_PATH=~/.npm-global
   NO_COLOR=1                 Disable colours (https://no-color.org)
 
@@ -167,7 +164,7 @@ show_version() {
         codename="$(sed -n 's/^HONEY_BADGER_CODENAME=.*:-*\([^}]*\)}.*$/\1/p' "$conf" | head -n1)"
     fi
 
-    version="${HONEY_BADGER_VERSION:-${version:-2.5.0}}"
+    version="${HONEY_BADGER_VERSION:-${version:-3.0.0}}"
     codename="${HONEY_BADGER_CODENAME:-${codename:-Fearless}}"
 
     printf 'Ratel Forge %s%s\n' "$version" "${codename:+ \"$codename\"}"
@@ -182,7 +179,6 @@ HONEY_BADGER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export HONEY_BADGER_ROOT
 
 CHECK_ONLY=0
-_HB_FONT_SIZE_SET=0
 
 _unknown_option() {
     printf '%s: unknown option: %s\n' "$HB_PROG" "$1" >&2
@@ -204,10 +200,10 @@ _normalize_components() {
     for item in "${items[@]}"; do
         [[ -n "$item" ]] || continue
         case "$item" in
-            base|dev|desktop|apps) out="${out:+$out,}$item" ;;
+            base|dev|apps) out="${out:+$out,}$item" ;;
             *)
                 printf '%s: invalid component: %s\n' "$HB_PROG" "$item" >&2
-                printf 'Valid components: base, dev, desktop, apps\n' >&2
+                printf 'Valid components: base, dev, apps\n' >&2
                 return 1
                 ;;
         esac
@@ -226,7 +222,7 @@ _normalize_components() {
     esac
     # Canonical order keeps summaries and resumes stable.
     local ordered="" c
-    for c in base dev desktop apps; do
+    for c in base dev apps; do
         case ",$out," in
             *",$c,"*) ordered="${ordered:+$ordered,}$c" ;;
         esac
@@ -235,20 +231,12 @@ _normalize_components() {
     return 0
 }
 
-_validate_font_size() {
-    local size="$1"
-    if [[ ! "$size" =~ ^[0-9]+$ ]] || (( size < 8 || size > 24 )); then
-        printf '%s: invalid font size: %s (expected 8-24)\n' "$HB_PROG" "$size" >&2
-        exit 2
-    fi
-}
-
 _validate_type_value() {
     case "$1" in
-        full|developer|desktop|minimal) return 0 ;;
+        full|developer|apps|minimal) return 0 ;;
         *)
             printf '%s: invalid install type: %s\n' "$HB_PROG" "$1" >&2
-            printf 'Valid types: full, developer, desktop, minimal\n' >&2
+            printf 'Valid types: full, developer, apps, minimal\n' >&2
             exit 2
             ;;
     esac
@@ -281,29 +269,13 @@ while [[ $# -gt 0 ]]; do
         --no-banner)        export HONEY_BADGER_NO_BANNER=1; shift ;;
         --ascii)            export HONEY_BADGER_ASCII=1; shift ;;
         --no-color)         export HONEY_BADGER_NO_COLOR=1; shift ;;
-        --high-contrast)    export HONEY_BADGER_HIGH_CONTRAST=1; shift ;;
-        --font-size)
-            _require_value "$@"
-            _validate_font_size "$2"
-            export HONEY_BADGER_FONT="Noto Sans $2"
-            export HONEY_BADGER_MONO_FONT="Noto Sans Mono $2"
-            _HB_FONT_SIZE_SET=1
-            shift 2
-            ;;
-        --font-size=*)
-            _validate_font_size "${1#*=}"
-            export HONEY_BADGER_FONT="Noto Sans ${1#*=}"
-            export HONEY_BADGER_MONO_FONT="Noto Sans Mono ${1#*=}"
-            _HB_FONT_SIZE_SET=1
-            shift
-            ;;
         -v|--verbose)       export HONEY_BADGER_VERBOSITY=2; shift ;;
         -q|--quiet)         export HONEY_BADGER_VERBOSITY=0; shift ;;
         --skip-docker)      export HONEY_BADGER_SKIP_DOCKER=1; shift ;;
         --skip-python)      export HONEY_BADGER_SKIP_PYTHON=1; shift ;;
         --skip-node)        export HONEY_BADGER_SKIP_NODE=1; shift ;;
         --skip-nano)        export HONEY_BADGER_SKIP_NANO=1; shift ;;
-        --skip-theme|--no-theme) export HONEY_BADGER_SKIP_THEME=1; shift ;;
+        --skip-shell)       export HONEY_BADGER_SKIP_SHELL=1; shift ;;
         --skip-git)         export HONEY_BADGER_SKIP_GIT=1; shift ;;
         --components)
             _require_value "$@"
@@ -461,9 +433,9 @@ run_preflight_checks() {
     local required_gb="${HONEY_BADGER_MIN_DISK_GB:-}"
     if [[ -z "$required_gb" ]]; then
         case "${HONEY_BADGER_INSTALL_TYPE:-}" in
-            full)      required_gb=9 ;;
+            full)      required_gb=8 ;;
             developer) required_gb=4 ;;
-            desktop)   required_gb=5 ;;
+            apps)      required_gb=5 ;;
             minimal)   required_gb=1 ;;
             *)         required_gb=1 ;;
         esac
@@ -502,23 +474,24 @@ show_installation_types() {
     hb_section "Choose an installation type"
 
     printf '  %b1  Full%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size full)" "$NC"
-    printf '     Everything: XFCE desktop, full development toolchain, browsers,\n'
-    printf '     office and media apps, containers, theme, and utilities.\n'
-    printf '     %bBest for:%b a new workstation you want fully set up. %b(recommended)%b\n\n' \
+    printf '     Complete developer workstation: language toolchains, containers,\n'
+    printf '     editors, CLI utilities, and GUI developer applications.\n'
+    printf '     %bBest for:%b a new machine you want fully set up. %b(recommended)%b\n\n' \
         "$HB_MUTED" "$NC" "$HB_OK" "$NC"
 
     printf '  %b2  Developer%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size developer)" "$NC"
-    printf '     Languages, build tools, containers, editors, and an XFCE desktop.\n'
-    printf '     Skips office suites and media applications.\n'
-    printf '     %bBest for:%b coding machines and development VMs.\n\n' "$HB_MUTED" "$NC"
+    printf '     Languages, build tools, containers, editors, and database clients.\n'
+    printf '     Skips GUI applications.\n'
+    printf '     %bBest for:%b coding machines, servers, and development VMs.\n\n' "$HB_MUTED" "$NC"
 
-    printf '  %b3  Desktop%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size desktop)" "$NC"
-    printf '     XFCE desktop, browsers, office and media apps, plus basic dev tools.\n'
-    printf '     %bBest for:%b everyday desktops where you do not compile much.\n\n' "$HB_MUTED" "$NC"
+    printf '  %b3  Applications%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size apps)" "$NC"
+    printf '     GUI developer applications, browsers, and media tools, without\n'
+    printf '     language toolchains or build tools.\n'
+    printf '     %bBest for:%b laptops that already have a toolchain or use containers.\n\n' "$HB_MUTED" "$NC"
 
     printf '  %b4  Minimal%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size minimal)" "$NC"
-    printf '     CLI tools, monitoring, nano, and Ratel Forge commands. No desktop,\n'
-    printf '     audio stack, fonts, or GUI applications.\n'
+    printf '     CLI tools, monitoring, nano, and Ratel Forge commands. No GUI\n'
+    printf '     applications, audio stack, or fonts.\n'
     printf '     %bBest for:%b servers, containers, and remote hosts.\n\n' "$HB_MUTED" "$NC"
 
     printf '  %bDefault:%b 1 (Full). Type %b?%b to show this list again.\n\n' \
@@ -532,13 +505,13 @@ get_installation_type() {
     if [[ -n "$type" ]]; then
         type="${type,,}"
         case "$type" in
-            full|developer|desktop|minimal)
+            full|developer|apps|minimal)
                 HB_SELECTED_TYPE="$type"
                 return 0
                 ;;
             *)
                 log_error "Invalid install type: $type" >&2
-                log_info "Valid types: full, developer, desktop, minimal" >&2
+                log_info "Valid types: full, developer, apps, minimal" >&2
                 return 1
                 ;;
         esac
@@ -557,7 +530,7 @@ get_installation_type() {
         case "$choice" in
             1|full)      HB_SELECTED_TYPE="full";      return 0 ;;
             2|developer) HB_SELECTED_TYPE="developer"; return 0 ;;
-            3|desktop)   HB_SELECTED_TYPE="desktop";   return 0 ;;
+            3|apps)      HB_SELECTED_TYPE="apps";      return 0 ;;
             4|minimal)   HB_SELECTED_TYPE="minimal";   return 0 ;;
             \?|help)     show_installation_types ;;
             *)
@@ -574,17 +547,6 @@ check_option_coherence() {
     local install_type="$1"
 
     if [[ "$install_type" == "minimal" ]]; then
-        if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
-            log_warning "--high-contrast has no effect on a Minimal install (no desktop)"
-            HONEY_BADGER_HIGH_CONTRAST=0
-        fi
-        if [[ "$_HB_FONT_SIZE_SET" == "1" ]]; then
-            log_warning "--font-size has no effect on a Minimal install (no desktop)"
-            unset HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT
-        fi
-        if [[ "${HONEY_BADGER_SKIP_THEME:-0}" == "1" ]]; then
-            log_info "--skip-theme is redundant: Minimal installs no theme"
-        fi
         if [[ -n "${HONEY_BADGER_COMPONENTS:-}" && "${HONEY_BADGER_COMPONENTS}" != "base" ]]; then
             log_warning "Minimal installs the base component only; ignoring --components"
             unset HONEY_BADGER_COMPONENTS
@@ -592,19 +554,19 @@ check_option_coherence() {
         return 0
     fi
 
-    if ! hb_component_enabled desktop; then
-        if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
-            log_warning "--high-contrast needs the desktop component; ignoring it"
-            HONEY_BADGER_HIGH_CONTRAST=0
-        fi
-        if [[ "$_HB_FONT_SIZE_SET" == "1" ]]; then
-            log_warning "--font-size needs the desktop component; ignoring it"
-            unset HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT
-        fi
-        if [[ "${HONEY_BADGER_SKIP_THEME:-0}" == "1" ]]; then
-            log_info "--skip-theme is redundant: the desktop component is disabled"
-        fi
-    fi
+    # A component can be valid on its own but absent from the chosen profile
+    # (for example --components dev with --type apps). Say so instead of
+    # silently reporting a component that will not be installed.
+    local profile_components c
+    case "$install_type" in
+        developer) profile_components="base dev" ;;
+        apps)      profile_components="base apps" ;;
+        *)         profile_components="base dev apps" ;;
+    esac
+    for c in ${HONEY_BADGER_COMPONENTS//,/ }; do
+        [[ " $profile_components " == *" $c "* ]] ||
+            log_warning "The $install_type profile does not install the '$c' component"
+    done
 }
 
 show_installation_summary() {
@@ -617,14 +579,6 @@ show_installation_summary() {
     hb_kv "Components" "$(hb_effective_components)"
     hb_kv "User" "$(whoami) · $HOME"
     hb_kv "Disk" "${_HB_AVAILABLE_GB} GB free · ${_HB_REQUIRED_GB:-?} GB required"
-    if hb_desktop_enabled; then
-        hb_kv "Theme" "$(hb_theme_name)"
-        if [[ -n "${HONEY_BADGER_FONT:-}" ]]; then
-            hb_kv "Font" "$HONEY_BADGER_FONT"
-        fi
-    else
-        hb_kv "Theme" "none (no desktop)"
-    fi
     [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && hb_kv "Mode" "dry run (no changes)"
     printf '\n  Planned components:\n'
     hb_type_bullets "$install_type"

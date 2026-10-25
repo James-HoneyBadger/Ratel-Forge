@@ -1,24 +1,22 @@
 # Ratel Forge — developer tasks
 #
-# make lint    structural + shellcheck + theme checks
+# make lint    structural + shellcheck + desktop-layer guard
 # make test    the three verification suites
 # make check   lint + test (what CI runs)
-# make theme   regenerate the high-contrast theme, then lint it
 
 SHELL := /bin/bash
 SHELLCHECK ?= shellcheck
 
-SCRIPTS := install.sh lib/*.sh uninstall.sh distros/*/install-*.sh assets/honey-badger-*
+SCRIPTS := install.sh lib/*.sh uninstall.sh distros/*/install-*.sh assets/honey-badger-* scripts/check-no-desktop-layer.sh
 
-.PHONY: help lint syntax shellcheck theme screenshot test check clean
+.PHONY: help lint syntax shellcheck guard test check clean
 
 help:
 	@printf "%s\n" \
-	  "make lint      Structural, shellcheck, and theme checks" \
+	  "make lint      Structural, shellcheck, and desktop-layer guard" \
 	  "make test      Run verify_scripts.sh, verify_advanced.sh, test_final.sh" \
 	  "make check     lint + test" \
-	  "make theme     Regenerate theme variants and lint them" \
-	  "make screenshot  Render widgets under Xvfb (needs xvfb + gtk3 examples)" \
+	  "make guard     Fail if desktop-environment or login code reappears" \
 	  "make clean     Remove Python caches"
 
 syntax:
@@ -32,19 +30,15 @@ shellcheck:
 	  $(SHELLCHECK) -x -s bash -e SC2034 $(SCRIPTS) && echo "OK shellcheck"; \
 	else echo "-- shellcheck not installed, skipping"; fi
 
-theme:
-	@python3 scripts/generate_theme_variants.py
-	@python3 scripts/lint-theme.py
-
-screenshot:
-	@scripts/theme-screenshot.sh "$${THEME:-Ratel}" "$${OUTPUT:-/tmp/ratel.png}"
+guard:
+	@scripts/check-no-desktop-layer.sh
 
 test:
 	@bash verify_scripts.sh
 	@bash verify_advanced.sh
 	@bash test_final.sh
 
-lint: syntax shellcheck theme
+lint: syntax shellcheck guard
 
 check: lint test
 

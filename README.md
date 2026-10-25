@@ -2,19 +2,22 @@
 
 # 🦡 Ratel Forge
 
-**Fearless Linux provisioning — one command, seven distribution families, a coherent desktop.**
+**Fearless Linux provisioning — one command, seven distribution families, a developer's toolkit.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Shell: Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](#)
 [![Platforms](https://img.shields.io/badge/Distros-7%20families-amber)](#supported-distributions)
 
-Ratel turns a fresh Linux installation into a complete development and desktop
-environment: toolchains, containers, editors, a themed XFCE session, and a set
-of small utilities that make the machine pleasant to live in.
+Ratel Forge turns a fresh Linux installation into a machine that is ready for
+application development: language toolchains, containers, editors, database
+clients, GUI developer applications, and a set of small utilities that keep the
+environment consistent.
 
-It is **not a distribution**. It runs on top of the distro you already trust —
-detecting what it is, then applying the right package manager, service manager,
-and desktop conventions.
+It is **not a distribution** and it is **not a desktop-environment installer**.
+It runs on top of the distro you already trust — detecting what it is, then
+applying the right package manager, service manager, and configuration
+conventions. It never installs or reconfigures a desktop environment, display
+manager, greeter, session, or login behaviour.
 
 > Formerly **Honey Badger OS**. The name changed to Ratel — the honey badger's
 > proper common name — because this project provides a provisioning framework,
@@ -25,19 +28,31 @@ and desktop conventions.
 
 ## Contents
 
+- [Documentation](#documentation)
 - [Supported distributions](#supported-distributions)
+- [What it configures](#what-it-configures)
 - [Quick start](#quick-start)
 - [Install types](#install-types)
 - [Command-line reference](#command-line-reference)
 - [Package manifests](#package-manifests)
-- [What gets installed](#what-gets-installed)
-- [Look and feel](#look-and-feel)
 - [Utility commands](#utility-commands)
 - [Architecture](#architecture)
 - [Testing](#testing)
 - [Security model](#security-model)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+
+---
+
+## Documentation
+
+| Document | Audience | Contents |
+|----------|----------|----------|
+| [User Manual](docs/USER_MANUAL.md) | Users | Installation, profiles, components, settings, utilities, troubleshooting, FAQ |
+| [Technical Reference](docs/TECHNICAL_REFERENCE.md) | Maintainers | Execution flow, module API, formats, state, JSON schema, security, extension points |
+| [Instructions](docs/INSTRUCTIONS.md) | Operators and contributors | Step-by-step procedures: deploy, add a distro, add a phase, add a utility, debug, release |
+| [Contributing](CONTRIBUTING.md) | Contributors | Conventions and pull-request workflow |
+| [Changelog](CHANGELOG.md) | Everyone | Release history |
 
 ---
 
@@ -56,6 +71,28 @@ and desktop conventions.
 Detection uses `/etc/os-release` first, then `ID_LIKE`, then the available
 package manager, then well-known release files — so derivatives usually work
 without an explicit entry.
+
+## What it configures
+
+| Layer | What Ratel Forge does |
+|-------|------------------------|
+| **System utilities** | Installs a lean base of CLI tools (`git`, `curl`, `wget`, `htop`, `tmux`, `rsync`, `nmap`, archives, OpenSSH) plus a modern toolkit: `jq`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`, `direnv`, `delta`, `shellcheck`, `shfmt`, `hyperfine`, `tokei`, `ncdu`, `btop`, `httpie` |
+| **Language toolchains** | Python, Node.js, Go, Rust, OpenJDK, Ruby, PHP, plus GCC, Clang, CMake, Ninja, Meson, and Make |
+| **Containers & data** | Docker, Compose, PostgreSQL/MySQL clients, SQLite, and Redis |
+| **Editor & shell** | Neovim, an enhanced nano configuration, `EDITOR`/`VISUAL` defaults, shell fragments, readline history search, Git identity and quality defaults |
+| **Developer applications** | IDEs, API clients, browsers, office and media tools, and database GUIs |
+| **Tool settings** | Config for `bat`, `ripgrep`, `tmux`, and EditorConfig; `delta` as the Git pager when installed |
+| **Utilities** | `honey-badger-info`, `-update`, `-install`, `-doctor`, and `-uninstall` |
+
+It deliberately does **not** touch:
+
+- desktop environments or window managers
+- display managers, greeters, or session files
+- boot targets, runlevels, or auto-login
+- GTK/Qt themes, icon themes, fonts, or wallpapers
+
+A CI guard (`scripts/check-no-desktop-layer.sh`) fails the build if any of that
+code appears again.
 
 ## Quick start
 
@@ -82,23 +119,23 @@ requested individually.
 ./install.sh --type full --dry-run
 ```
 
-Dry runs are truthful: user-level steps (nano config, theme files, editor
-defaults, tool installs) are skipped as well as privileged ones.
+Dry runs are truthful: user-level steps (nano config, editor defaults, tool
+installs) are skipped as well as privileged ones.
 
 ### Unattended
 
 ```bash
-./install.sh --type minimal --yes
+./install.sh --type developer --yes
 ```
 
 ## Install types
 
 | Type | Disk | Includes | Best for |
 |------|------|----------|----------|
-| **Full** | 6–9 GB | XFCE desktop, full toolchain, containers, browsers, office, media, theme | New workstations |
-| **Developer** | 2–4 GB | Languages, build tools, containers, editors, XFCE desktop (no office/media apps) | Development machines |
-| **Desktop** | 3–5 GB | XFCE desktop with networking/audio/fonts, browsers, office, media, basic dev tools | Everyday desktops |
-| **Minimal** | 0.3–0.8 GB | CLI tools, monitoring, nano, Ratel Forge commands — no desktop | Servers and containers |
+| **Full** | 5–8 GB | Full toolchain, containers, editors, CLI utilities, and GUI developer applications | A new development workstation |
+| **Developer** | 2–4 GB | Languages, build tools, containers, editors, and DB clients — no GUI applications | Coding machines, servers, and VMs |
+| **Applications** | 3–5 GB | GUI developer applications, browsers, and media tools — no language toolchains | Laptops that already have a toolchain or use containers |
+| **Minimal** | 0.5–1.0 GB | CLI tools (including the modern toolkit), monitoring, nano, and Ratel Forge commands — no GUI applications | Servers and containers |
 
 List them at any time:
 
@@ -112,16 +149,14 @@ List them at any time:
 |--------|-------------|
 | `-h, --help` | Show help and exit |
 | `-V, --version` | Show version and exit |
-| `-t, --type TYPE` | Install type: `full`, `developer`, `desktop`, `minimal` |
+| `-t, --type TYPE` | Install type: `full`, `developer`, `apps`, `minimal` |
 | `--list-types` | Print the install types and exit |
 | `-n, --dry-run` | Simulate the install without making changes |
 | `-y, --yes` | Assume yes for the confirmation prompt |
 | `--non-interactive` | Never prompt (requires `--type`) |
 | `--check` | Run pre-flight checks only, then exit |
 | `--resume` | Resume a previous run, skipping phases already completed |
-| `--components LIST` | Package groups to install: `base`, `dev`, `desktop`, `apps` |
-| `--high-contrast` | Use the `Ratel-HC` high-contrast theme variant |
-| `--font-size PX` | Desktop font size, 8–24 (default 10) |
+| `--components LIST` | Package groups to install: `base`, `dev`, `apps` |
 | `--no-banner` | Omit the banner |
 | `--ascii` | Use ASCII instead of Unicode glyphs |
 | `--no-color` | Disable coloured output |
@@ -131,7 +166,7 @@ List them at any time:
 | `--skip-python` | Skip Python development setup |
 | `--skip-node` | Skip Node.js development setup |
 | `--skip-nano` | Skip nano configuration |
-| `--skip-theme` | Skip theme and wallpaper installation |
+| `--skip-shell` | Skip shell fragments and CLI tool configuration |
 | `--skip-git` | Skip Git identity configuration |
 
 `--help`, `--version`, and `--list-types` are side-effect free: they run before
@@ -141,19 +176,16 @@ the shared library is sourced, so they never create log files or locks.
 
 | Variable | Values | Purpose |
 |----------|--------|---------|
-| `HONEY_BADGER_INSTALL_TYPE` | `full` \| `developer` \| `desktop` \| `minimal` | Install profile |
+| `HONEY_BADGER_INSTALL_TYPE` | `full` \| `developer` \| `apps` \| `minimal` | Install profile |
 | `HONEY_BADGER_DRY_RUN` | `1` | Same as `--dry-run` |
 | `HONEY_BADGER_NONINTERACTIVE` | `1` | Same as `--non-interactive` |
 | `HONEY_BADGER_ASSUME_YES` | `1` | Same as `--yes` |
 | `HONEY_BADGER_GIT_USERNAME` / `_EMAIL` | text | Git identity for unattended runs |
 | `HONEY_BADGER_LOG_COUNT` | integer (5) | Rotated log files to keep |
 | `HONEY_BADGER_NETWORK_TIMEOUT` | seconds (3) | Connectivity probe timeout |
-| `HONEY_BADGER_WALLPAPER_SIZE` | `WxH` (1920x1080) | Generated wallpaper size |
+| `HONEY_BADGER_MIN_DISK_GB` | integer | Override the profile disk check |
 | `HONEY_BADGER_NPM_GLOBAL_PATH` | path (`~/.npm-global`) | npm global prefix |
-| `HONEY_BADGER_COMPONENTS` | `base,dev,desktop,apps` | Same as `--components` |
-| `HONEY_BADGER_HIGH_CONTRAST` | `1` | Same as `--high-contrast` |
-| `HONEY_BADGER_THEME_VARIANT` | `default` \| `high-contrast` | Active theme variant |
-| `HONEY_BADGER_FONT` / `_MONO_FONT` | font spec | Desktop and monospace fonts |
+| `HONEY_BADGER_COMPONENTS` | `base,dev,apps` | Same as `--components` |
 | `HONEY_BADGER_REQUIRE_CHECKSUMS` | `1` | Fail downloads that have no SHA-256 |
 | `HONEY_BADGER_DOCKER_GPG_SHA256` | hex | Expected Docker key digest |
 | `HONEY_BADGER_GITHUB_CLI_KEY_SHA256` | hex | Expected GitHub CLI key digest |
@@ -175,40 +207,61 @@ curl
 wget
 git
 
-[SNAP_PACKAGES]
-code --classic
+[DEVELOPER_PACKAGES]
+python3
+nodejs
+go
+
+[APPLICATIONS_PACKAGES]
+firefox
+postman
 ```
 
-Sections become arrays of the same name (`BASE_PACKAGES`, `SNAP_PACKAGES`, …),
+Sections become arrays of the same name (`BASE_PACKAGES`, `DEVELOPER_PACKAGES`, …),
 and the provisioner loads them with `hb_load_package_manifest`. Reviewing a
-package change is now a diff of a plain list, with no shell logic in the way.
+package change is a diff of a plain list, with no shell logic in the way.
+
+Components map to sections:
+
+| Component | Manifest section | Installed by |
+|-----------|------------------|--------------|
+| `base` | `BASE_PACKAGES` + `CLI_TOOLS_PACKAGES` (and `BASE_SETS` on Slackware) | every type |
+| `dev` | `DEVELOPER_PACKAGES` (and `DEVELOPER_SETS` on Slackware) | `full`, `developer` |
+| `apps` | `APPLICATIONS_PACKAGES`, snaps, flatpaks, AUR | `full`, `apps` |
 
 ## What gets installed
 
-**Base (all types)** — `curl`, `wget`, `git`, `htop`, `neofetch`, `tmux`, `tree`,
-OpenSSH, `rsync`, `nmap`, `gparted`, filesystem tools, audio utilities, and
-DejaVu/Liberation/Noto fonts (including colour emoji).
+**Base (all types)** — `curl`, `wget`, `git`, `unzip`, `zip`, `htop`, `tree`,
+`tmux`, `screen`, OpenSSH, `rsync`, and `nmap`.
+
+**Base tools (all types)** — `jq`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`,
+`direnv`, `git-delta`, `shellcheck`, `shfmt`, `hyperfine`, `tokei`, `ncdu`,
+`btop`, `httpie`, and `yq` where the family packages it. Debian/Ubuntu ship
+`fd` as `fdfind` and `bat` as `batcat`; the names are unchanged upstream.
 
 **Developer** — Python 3, Node.js, Go, Rust, OpenJDK, Ruby, PHP; GCC, Clang,
 CMake, Ninja, Meson, Make; Docker and Compose; PostgreSQL/MySQL clients, SQLite,
 Redis; Neovim and an enhanced nano; `gh` and `git-delta`.
 
-**Desktop** — XFCE4 with Whisker Menu and panel plugins, Thunar, LightDM, Rofi,
-dmenu, notification and power management, NetworkManager applets, PulseAudio,
-fonts, and disk tools (`gparted`, `ntfs-3g`, `exfatprogs`, `dosfstools`).
-
 **Applications** — Firefox, Chromium, LibreOffice, GIMP, Inkscape, VLC,
-Audacity, OBS, FFmpeg, Thunderbird, Telegram.
+Audacity, FFmpeg, Thunderbird, Telegram, plus IDE/API-client packages where the
+family provides them (VS Code, Postman, and friends).
 
-**Ratel layer** — the GTK2/GTK3 theme, generated wallpaper, LightDM greeter
-theme, XFCE appearance settings, nano configuration, Git defaults, and the
-`honey-badger-*` utilities.
+**Settings (all types)** — shell fragments in `~/.config/ratel/shell/*.sh`
+sourced from a single `~/.bashrc` line, `~/.inputrc` history search,
+`~/.editorconfig`, and configuration for `bat`, `ripgrep`, and `tmux`. Git gains
+sensible defaults when the key is unset: `zdiff3` conflicts, rerere, auto-stash
+rebases, `push.autoSetupRemote`, pruning fetches, a global ignore file, and
+`delta` as the pager when it is installed.
+
+**Ratel layer** — nano configuration, Docker group setup, the `honey-badger-*`
+utilities (including a redacted `report`), shell completion, and a JSON install
+summary.
 
 ## Look and feel
 
-### Terminal
-
-The installer uses one design system from start to finish:
+Terminal output is the only visual surface Ratel Forge owns. The installer uses
+one design system from start to finish:
 
 ```
   ╭────────────────────────────────────────────────────────────╮
@@ -217,27 +270,28 @@ The installer uses one design system from start to finish:
   │ Fearless Linux provisioning                                │
   │                                                            │
   ╰────────────────────────────────────────────────────────────╯
-  🦡  v2.5.0 "Fearless" · dry-run
+  🦡  v3.0.0 "Fearless" · dry-run
 
   ── Choose an installation type ─────────────────────────────
 
-  1  Full  · 6-9 GB
-     Everything: XFCE desktop, full development toolchain, browsers,
-     office and media apps, containers, theme, and utilities.
-     Best for: a new workstation you want fully set up. (recommended)
+  1  Full  · 5-8 GB
+     Complete developer workstation: language toolchains, containers,
+     editors, CLI utilities, and GUI developer applications.
+     Best for: a new machine you want fully set up. (recommended)
 
   2  Developer  · 2-4 GB
-     Languages, build tools, containers, editors, and an XFCE desktop.
-     Skips office suites and media applications.
-     Best for: coding machines and development VMs.
+     Languages, build tools, containers, editors, and database clients.
+     Skips GUI applications.
+     Best for: coding machines, servers, and development VMs.
 
-  3  Desktop  · 3-5 GB
-     XFCE desktop, browsers, office and media apps, plus basic dev tools.
-     Best for: everyday desktops where you do not compile much.
+  3  Applications  · 3-5 GB
+     GUI developer applications, browsers, and media tools, without
+     language toolchains or build tools.
+     Best for: laptops that already have a toolchain or use containers.
 
-  4  Minimal  · 0.3-0.8 GB
-     CLI tools, monitoring, nano, and Ratel Forge commands. No desktop,
-     audio stack, fonts, or GUI applications.
+  4  Minimal  · 0.5-1.0 GB
+     CLI tools, monitoring, nano, and Ratel Forge commands. No GUI
+     applications, audio stack, or fonts.
      Best for: servers, containers, and remote hosts.
 
   Default: 1 (Full). Type ? to show this list again.
@@ -251,7 +305,7 @@ The installer uses one design system from start to finish:
   ✔ Disk space OK (443 GB free; 4 GB required for developer)
   ✔ Repository layout OK
 
-  ❯ [1/12] Updating system packages...
+  ❯ [1/11] Updating system packages...
 ```
 
 - Severity glyphs (`✔`, `▲`, `✖`, `•`, `❯`) with automatic ASCII fallback
@@ -263,58 +317,18 @@ The installer uses one design system from start to finish:
 - Timestamped, ANSI-free logs for direct provisioner runs; the universal
   installer additionally tees raw subprocess output into its own log
 
-### Desktop theme
-
-Ratel ships a warm, low-fatigue dark theme. Surfaces are espresso rather than
-pure black, so elevation stays readable; a single honey accent carries
-selection, focus, and progress.
-
-| Token | Hex | Used for |
-|-------|-----|----------|
-| Background | `#16120d` | Windows |
-| Surface | `#201a14` | Header bars, panels, menus |
-| Base | `#12100b` | Text views, lists, inputs |
-| Border | `#3a3128` | Hairlines and frames |
-| Text | `#f3ebdf` | Primary foreground |
-| Muted text | `#b8a992` | Secondary foreground |
-| Accent | `#e6a92e` | Selection, focus, links, progress |
-| On accent | `#1a1409` | Text over the accent |
-| Warning / Error / Success | `#e9b44c` / `#e0685c` / `#79b96f` | Status |
-
-Implementation notes:
-
-- `theme/honey-badger-theme.css` imports Adwaita's dark baseline (GTK 3.20+)
-  then overrides the palette and the widgets that define the character —
-  header bars, buttons, entries, menus, tabs, switches, scales, progress bars,
-  sidebars, tree views, popovers, tooltips, infobars.
-- `theme/gtkrc-2.0` reproduces the palette for legacy GTK2 apps without
-  depending on a specific theme engine.
-- `theme/index.theme` registers the metatheme; the icon theme inherits
-  `hicolor, Adwaita, gnome, Humanity` so no icon ever goes missing.
-- `assets/ratel-logo.svg` is installed as `ratel.svg` in the user icon theme and
-  the system hicolor/pixmaps directories.
-- A **high-contrast variant** (`Ratel-HC`) is generated from the same stylesheet
-  by `scripts/generate_theme_variants.py`: pure-black surfaces, 2 px borders,
-  3 px focus rings, and AAA-level contrast. Select it with `--high-contrast`,
-  then switch live with `honey-badger-theme apply high-contrast`.
-- `--font-size` sets both the UI and monospace fonts (8–24 px).
-- The theme is installed to `~/.themes/Ratel` **and** `/usr/share/themes/Ratel`
-  so LightDM and other accounts can use it.
-- `~/.config/gtk-3.0/settings.ini`, `~/.gtkrc-2.0`, and the XFCE
-  `xsettings`/`xfwm4` channels are written so the theme applies on next login —
-  and immediately if an XFCE session is running.
-
 ## Utility commands
 
 | Command | What it does |
 |---------|--------------|
-| `honey-badger-info [--json]` | OS, kernel, hardware, install type, components, theme |
-| `honey-badger-update [--dry-run]` | Update system packages, Flatpak/Snap, then clean the cache |
+| `honey-badger-info [--json]` | OS, kernel, hardware, install type, and components |
+| `honey-badger-update [--check] [--dry-run]` | List available updates (`--check`) or update packages, Flatpak/Snap, and clean the cache |
 | `honey-badger-install <pkg…>` | Install packages with the native package manager |
+| `honey-badger-install --file <list>` | Install packages listed one per line (comments allowed) |
 | `honey-badger-install --search <term>` | Search the repositories |
 | `honey-badger-install --remove <pkg…>` | Remove packages |
-| `honey-badger-theme [status\|apply\|list\|palette]` | Inspect, switch, or preview the theme |
-| `honey-badger-doctor [--json]` | Diagnose theme, settings, utilities, and runtime issues |
+| `honey-badger-report [--output FILE]` | Redacted environment report for bug reports |
+| `honey-badger-doctor [--json]` | Diagnose metadata, utilities, toolchains, shell setup, SSH permissions, locale, and runtime issues |
 | `honey-badger-uninstall` | Remove Ratel Forge customizations (keeps packages) |
 
 Every command sources a shared `~/.local/share/honey-badger/ui.sh`, so they look
@@ -322,9 +336,9 @@ and behave like the installer. They read install metadata from
 `install-info`, and package-manager commands from `pm.conf`, so the same
 utilities work on all seven families.
 
-`honey-badger-doctor` is profile-aware: theme checks are skipped on Minimal
-installs, where no desktop exists. Both `info` and `doctor` accept `--json` for
-dashboards and scripts, and bash completion is installed to
+`honey-badger-doctor` is profile-aware: toolchain checks are skipped on Minimal
+installs. Both `info` and `doctor` accept `--json` for dashboards and scripts,
+and bash completion is installed to
 `~/.local/share/bash-completion/completions/honey-badger`.
 
 ## Architecture
@@ -335,24 +349,20 @@ install.sh                       Entry point: flags, checks, dispatch
 │   ├── common.sh                Core: config, sudo, progress, resume, JSON
 │   ├── ui.sh                    Colours, glyphs, layout, logging, prompts
 │   ├── packages.sh              Manifest loader (sections -> arrays)
-│   ├── theme.sh                 GTK/theme, XFCE, LightDM, wallpaper
+│   ├── editor.sh                Nano configuration and editor defaults
+│   ├── shell.sh                 Shell fragments, readline, tool configs
 │   └── utilities.sh             honey-badger-* generation, post-install
 ├── config/
-│   ├── honey-badger-os.conf     Version, palette, typography, flags
+│   ├── honey-badger-os.conf     Version, editor, flags, tunables
 │   ├── packages/<family>.conf   Package manifests (7 families)
 │   └── nanorc                   Enhanced nano configuration
 ├── distros/<family>/             One provisioner per family
-├── theme/
-│   ├── honey-badger-theme.css   GTK3 base theme
-│   ├── honey-badger-theme-hc.css Generated high-contrast variant
-│   ├── gtkrc-2.0                GTK2 theme
-│   ├── index.theme              Metatheme descriptor
-│   └── index-hc.theme           High-contrast metatheme
 ├── assets/                      Fallback utility commands and logo
 ├── completions/                 Bash and Zsh completions
-├── scripts/                     Theme generator and linter
+├── docs/                        User manual, technical reference, instructions
+├── scripts/                     Desktop-layer guard
 ├── schema/                      JSON schema for the install summary
-├── Makefile / justfile          lint, test, check, theme targets
+├── Makefile / justfile          lint, test, check targets
 ├── verify_scripts.sh            Static structure checks
 ├── verify_advanced.sh           Security and robustness checks
 └── test_final.sh                Execution-level smoke tests
@@ -360,6 +370,13 @@ install.sh                       Entry point: flags, checks, dispatch
 
 ### Design decisions
 
+- **Developer tooling only.** No desktop environment, display manager, greeter,
+  session, boot target, theme, or wallpaper code — enforced by a CI guard.
+- **Shell settings are fragment-based.** All shell configuration lives in
+  `~/.config/ratel/shell/*.sh` behind one sourced line. Nothing touches login
+  files, PAM, or `/etc/profile`, and removal is a directory delete.
+- **Existing choices win.** Git defaults are only written when the key is unset,
+  so a configured machine is never silently rewritten.
 - **Data-driven install types.** `install.sh` owns one catalogue (label, size,
   blurb, bullets) used by the menu, the summary, and `--list-types`; there is no
   duplicated copy to drift.
@@ -379,37 +396,27 @@ install.sh                       Entry point: flags, checks, dispatch
 - **Resume is phase-based.** `hb_phase <id> <command>` records completed units
   of work, so `--resume` skips only what finished — and refuses to reuse state
   from a different distro or install type.
-- **Components narrow a profile.** `--components base,dev,desktop,apps` filters
-  package groups and the desktop/dev setup that depends on them. `base` is
-  always included, and options that need a desktop are dropped with a warning
-  when the desktop component is not selected.
-- **Themes are generated, then linted.** The high-contrast variant is derived
-  from the base stylesheet and both are checked for structure, selectors, and
-  WCAG contrast in CI.
+- **Components narrow a profile.** `--components base,dev,apps` filters package
+  groups and the development setup that depends on them. `base` is always
+  included.
 
 ## Testing
 
 ```bash
-bash verify_scripts.sh    # structure, syntax, parity
+bash verify_scripts.sh    # structure, syntax, parity, desktop-layer guard
 bash verify_advanced.sh   # security patterns, dry-run, colour handling
 bash test_final.sh        # sourcing, idempotency, JSON, progress, banner
 ```
 
-The suites cover 261 checks locally and run in CI across seven container images.
+The suites run in CI across seven container images.
 
 Developer shortcuts:
 
 ```bash
-make lint     # bash -n, shellcheck, theme structure/contrast
+make lint     # bash -n, shellcheck, desktop-layer guard
 make test     # the three suites
 make check    # both
-make theme    # regenerate the high-contrast theme and lint it
-```
-
-Visual review (optional, needs `xvfb` + GTK3 examples):
-
-```bash
-scripts/theme-screenshot.sh Ratel /tmp/ratel.png
+make guard    # fail if desktop-environment or login code reappears
 ```
 
 ## Security model
@@ -423,7 +430,7 @@ scripts/theme-screenshot.sh Ratel /tmp/ratel.png
 - GPG key imports use `--batch --yes` and HTTPS only
 - Downloads are verified to be non-empty; pass a SHA-256 (or set
   `HONEY_BADGER_REQUIRE_CHECKSUMS=1`) to enforce integrity
-- The install summary now has a published JSON schema under `schema/`
+- The install summary has a published JSON schema under `schema/`
 
 ## Troubleshooting
 
@@ -433,7 +440,7 @@ scripts/theme-screenshot.sh Ratel /tmp/ratel.png
 | `No network connectivity detected` | Check DNS and outbound HTTPS; the probe falls back from DNS to `host`, `ping`, then `curl` |
 | `Insufficient disk space` | Choose a smaller type or free space (`--check` reports what is available) |
 | Package install failures | Non-fatal for optional packages; inspect the log |
-| Theme not applied after login | Log out and back in; confirm `~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml` exists |
+| Toolchain not on `PATH` | Reload the shell (`source ~/.bashrc`) and run `honey-badger-doctor` |
 | Need to undo | `bash uninstall.sh` (packages are left to your package manager) |
 
 Logs live in `~/.local/share/honey-badger/logs/` (rotated, 5 by default). The
@@ -443,8 +450,10 @@ universal installer also writes a summary to `/tmp/honeybadger-summary.json`.
 
 1. Fork and branch from `main`
 2. Keep user-facing output on the shared UI helpers
-3. Run all three suites plus `bash -n` on changed scripts
-4. Open a pull request
+3. Never add desktop-environment, display-manager, greeter, session, or login
+   handling — `make guard` must stay green
+4. Run all three suites plus `bash -n` on changed scripts
+5. Open a pull request
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full checklist.
 

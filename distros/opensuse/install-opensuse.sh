@@ -71,15 +71,6 @@ install_zypper_packages() {
     fi
 }
 
-# ── XFCE service setup (openSUSE-specific) ───────────────────────────────────
-setup_xfce_opensuse() {
-    hb_next_step "Setting up XFCE desktop for openSUSE..."
-    # Install XFCE pattern
-    hb_sudo zypper --non-interactive install -t pattern xfce 2>/dev/null || true
-    hb_sudo systemctl set-default graphical.target 2>/dev/null || true
-    setup_xfce
-}
-
 # ── Packman repository (multimedia codecs) ───────────────────────────────────
 setup_packman() {
     hb_next_step "Setting up Packman repository for multimedia codecs..."
@@ -104,29 +95,22 @@ install_packages_by_type() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     log_info "Installation type: $install_type"
     install_zypper_packages BASE_PACKAGES "base"
+    install_zypper_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_zypper_packages DEVELOPER_PACKAGES "developer"
-            install_zypper_packages DESKTOP_PACKAGES "desktop"
             install_zypper_packages APPLICATIONS_PACKAGES "applications"
             setup_packman
-            setup_xfce_opensuse
             ;;
         "developer")
             install_zypper_packages DEVELOPER_PACKAGES "developer"
-            install_zypper_packages DESKTOP_PACKAGES "basic desktop"
-            setup_xfce_opensuse
             ;;
-        "desktop")
-            install_zypper_packages DESKTOP_PACKAGES "desktop"
+        "apps")
             install_zypper_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python3" "python3-pip" "nodejs" "npm" "git")
-            install_zypper_packages basic_dev "basic development"
             setup_packman
-            setup_xfce_opensuse
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -161,10 +145,10 @@ main() {
         hb_set_total_steps 0
     else
         case "$install_type" in
-            full)      hb_set_total_steps 16 ;;
-            developer) hb_set_total_steps 14 ;;
-            desktop)   hb_set_total_steps 12 ;;
-            minimal)   hb_set_total_steps 4 ;;
+            full)      hb_set_total_steps 13 ;;
+            developer) hb_set_total_steps 11 ;;
+            apps)      hb_set_total_steps 8 ;;
+            minimal)   hb_set_total_steps 6 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -173,18 +157,15 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo zypper --non-interactive update" \
         "sudo zypper --non-interactive install" \
         "sudo zypper --non-interactive clean --all" \
         "zypper search" \
-        "sudo zypper --non-interactive remove"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo zypper --non-interactive remove" \
+        "zypper --non-interactive list-updates"
+
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_dev_opensuse
     fi

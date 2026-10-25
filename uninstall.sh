@@ -26,9 +26,9 @@ Usage: uninstall.sh [--dry-run]
 Removes Ratel Forge customizations:
   • Utility commands (~/.local/bin/honey-badger-*)
   • Shell completion (~/.local/share/bash-completion/completions/honey-badger)
-  • Theme files (~/.themes/Ratel, ~/.icons/Ratel, /usr/share/themes/Ratel)
-  • Desktop appearance settings created by the installer
   • Nano configuration (~/.nanorc, ~/.nano/)
+  • Shell fragments (~/.config/ratel/shell) and readline settings (~/.inputrc)
+  • CLI tool configuration (bat, ripgrep, tmux, EditorConfig)
   • Restores backed-up config files (.hb-backup -> original)
   • Clears Ratel Forge data (~/.local/share/honey-badger/)
 
@@ -95,6 +95,19 @@ do_restore_or_remove() {
     fi
 }
 
+# Remove a file only when Ratel Forge created it, identified by our marker.
+do_remove_if_managed() {
+    local target="$1"
+    if [[ ! -f "$target" ]]; then
+        return 0
+    fi
+    if head -n 5 "$target" 2>/dev/null | grep -qF "Managed by Ratel Forge"; then
+        do_remove "$target"
+    else
+        log_info "Leaving $target (not managed by Ratel Forge)"
+    fi
+}
+
 do_restore_backup() {
     local backup="$1"
     local original="${backup%.hb-backup}"
@@ -112,41 +125,24 @@ do_restore_backup() {
 # ── Remove utility scripts ──────────────────────────────────────────────────
 log_info "Checking Ratel Forge utility scripts..."
 for script in honey-badger-info honey-badger-update honey-badger-install \
-              honey-badger-theme honey-badger-doctor honey-badger-uninstall; do
+              honey-badger-report honey-badger-doctor honey-badger-uninstall; do
     do_remove "$HOME/.local/bin/$script"
-done
-
-# ── Remove theme ────────────────────────────────────────────────────────────
-log_info "Checking theme files..."
-do_remove "$HOME/.themes/Ratel"
-do_remove "$HOME/.themes/Ratel-HC"
-do_remove "$HOME/.icons/Ratel"
-# Legacy brand directories from earlier releases
-do_remove "$HOME/.themes/HoneyBadger"
-do_remove "$HOME/.icons/HoneyBadger"
-
-# System-wide theme copy (requires sudo)
-for theme_dir in /usr/share/themes/Ratel /usr/share/themes/Ratel-HC; do
-    [[ -d "$theme_dir" ]] || continue
-    if [[ $DRY_RUN -eq 1 ]]; then
-        log_info "Would remove: $theme_dir (sudo)"
-    else
-        sudo rm -rf "$theme_dir" 2>/dev/null && log_success "Removed: $theme_dir"
-    fi
 done
 
 # ── Remove generated config (restoring a backup when one exists) ────────────
 log_info "Checking generated configuration..."
 do_restore_or_remove "$HOME/.nanorc"
-do_restore_or_remove "$HOME/.gtkrc-2.0"
-do_restore_or_remove "$HOME/.config/gtk-3.0/settings.ini"
-do_restore_or_remove "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
-do_restore_or_remove "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml"
+do_restore_or_remove "$HOME/.inputrc"
+do_restore_or_remove "$HOME/.editorconfig"
+do_restore_or_remove "$HOME/.config/bat/config"
+do_restore_or_remove "$HOME/.config/ripgrep/config"
+do_restore_or_remove "$HOME/.config/tmux/tmux.conf"
+do_remove "$HOME/.config/ratel"
+do_remove_if_managed "$HOME/.config/git/ignore"
 
 # ── Restore other backed-up files ───────────────────────────────────────────
 log_info "Checking for backed-up config files..."
 do_restore_backup "$HOME/.bashrc.hb-backup"
-do_restore_backup "$HOME/.xinitrc.hb-backup"
 
 # ── Process rollback manifest ───────────────────────────────────────────────
 MANIFEST="$HOME/.local/share/honey-badger/rollback-manifest"
@@ -196,6 +192,8 @@ if [[ -f "$HOME/.bashrc" ]]; then
         'export VISUAL=nano'
         'export PATH="$HOME/.local/bin:$PATH"'
         'export PATH=~/.npm-global/bin:$PATH'
+        '# Ratel Forge shell configuration'
+        'for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/ratel/shell/*.sh; do [ -r "$f" ] && . "$f"; done'
     )
     for pattern in "${local_patterns[@]}"; do
         if grep -Fxq "$pattern" "$HOME/.bashrc" 2>/dev/null; then

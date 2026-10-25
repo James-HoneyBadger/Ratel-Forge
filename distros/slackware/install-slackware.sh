@@ -181,63 +181,28 @@ setup_sbopkg() {
     fi
 }
 
-# ── XFCE setup (Slackware-specific) ────────────────────────────────────────
-setup_xfce_slackware() {
-    if ! hb_component_enabled desktop; then
-        log_info "Skipping setup_xfce_slackware (desktop component disabled)"
-        return 0
-    fi
-
-    hb_next_step "Configuring XFCE desktop for Slackware..."
-    # Install X11 and XFCE sets
-    install_disk_sets X_SET "X Window System"
-    install_disk_sets XFCE_SET "XFCE desktop"
-    # Set default runlevel to 4 (graphical) in inittab
-    if [[ -f /etc/inittab ]] && grep -q "id:3:initdefault" /etc/inittab; then
-        hb_backup_file /etc/inittab
-        hb_sudo sed -i 's/id:3:initdefault/id:4:initdefault/' /etc/inittab
-        log_success "Default runlevel set to 4 (graphical)"
-    fi
-    # Configure xinitrc for XFCE
-    if [[ -d "$HOME" ]]; then
-        if [[ ! -f "$HOME/.xinitrc" ]] || ! grep -q "xfce4-session" "$HOME/.xinitrc"; then
-            hb_backup_file "$HOME/.xinitrc"
-            echo "exec startxfce4" > "$HOME/.xinitrc"
-            log_success "XFCE set as default session"
-        fi
-    fi
-    setup_xfce
-}
-
 # ── Main installation by type ──────────────────────────────────────────────
 install_packages_by_type() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     log_info "Installation type: $install_type"
     install_disk_sets BASE_SETS "base system"
     install_slack_packages BASE_PACKAGES "base utilities"
+    install_slack_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_disk_sets DEVELOPER_SETS "development"
             install_slack_packages DEVELOPER_PACKAGES "developer"
-            setup_xfce_slackware
-            install_slack_packages DESKTOP_PACKAGES "desktop utilities"
             install_slack_packages APPLICATIONS_PACKAGES "applications"
             ;;
         "developer")
             install_disk_sets DEVELOPER_SETS "development"
             install_slack_packages DEVELOPER_PACKAGES "developer"
-            setup_xfce_slackware
-            install_slack_packages DESKTOP_PACKAGES "desktop utilities"
             ;;
-        "desktop")
-            setup_xfce_slackware
-            install_slack_packages DESKTOP_PACKAGES "desktop utilities"
+        "apps")
             install_slack_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python3" "git" "make")
-            install_slack_packages basic_dev "basic development"
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -288,10 +253,10 @@ main() {
         hb_set_total_steps 0
     else
         case "$install_type" in
-            full)      hb_set_total_steps 21 ;;
-            developer) hb_set_total_steps 20 ;;
-            desktop)   hb_set_total_steps 16 ;;
-            minimal)   hb_set_total_steps 7 ;;
+            full)      hb_set_total_steps 16 ;;
+            developer) hb_set_total_steps 15 ;;
+            apps)      hb_set_total_steps 10 ;;
+            minimal)   hb_set_total_steps 9 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -302,18 +267,15 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo slackpkg update && sudo slackpkg upgrade-all" \
         "sudo slackpkg install" \
         "echo 'Slackware keeps no package cache to clean'" \
         "slackpkg search" \
-        "sudo slackpkg remove"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo slackpkg remove" \
+        ""
+
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_docker_slackware
     fi

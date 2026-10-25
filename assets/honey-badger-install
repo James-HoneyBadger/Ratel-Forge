@@ -29,12 +29,14 @@ usage() {
 Usage: honey-badger-install [options] <package> [package...]
        honey-badger-install --search <term>
        honey-badger-install --remove <package> [package...]
+       honey-badger-install --file <list>
 
 Installs, searches for, or removes packages with the native package manager.
 
 Options:
   -s, --search <term>    Search the repositories
   -r, --remove           Remove the named packages
+  -f, --file <path>      Read packages from a file (one per line, # comments)
   -n, --dry-run          Show the command without running it
   -h, --help             Show this help message
 
@@ -42,12 +44,14 @@ Examples:
   honey-badger-install firefox vlc
   honey-badger-install --search image editor
   honey-badger-install --remove thunderbird
+  honey-badger-install --file ~/dev-tools.txt
 EOF
 }
 
 ACTION=install
 DRY_RUN=0
 SEARCH_TERM=""
+FILE=""
 PACKAGES=()
 
 while [[ $# -gt 0 ]]; do
@@ -56,6 +60,14 @@ while [[ $# -gt 0 ]]; do
         -r|--remove) ACTION=remove; shift ;;
         -n|--dry-run) DRY_RUN=1; shift ;;
         -s|--search) ACTION=search; shift ;;
+        -f|--file)
+            if [[ $# -lt 2 || -z "${2:-}" ]]; then
+                printf 'honey-badger-install: --file requires a path\n' >&2
+                exit 2
+            fi
+            FILE="$2"
+            shift 2
+            ;;
         -*)
             printf 'honey-badger-install: unknown option: %s\n' "$1" >&2
             printf 'Try honey-badger-install --help\n' >&2
@@ -64,6 +76,31 @@ while [[ $# -gt 0 ]]; do
         *) PACKAGES+=("$1"); shift ;;
     esac
 done
+
+if [[ -n "$FILE" && "$ACTION" == "search" ]]; then
+    printf 'honey-badger-install: --file cannot be combined with --search\n' >&2
+    exit 2
+fi
+
+# Package list format: one entry per line; '#' starts a comment; CR and
+# surrounding whitespace are ignored.
+if [[ -n "$FILE" ]]; then
+    if [[ ! -r "$FILE" ]]; then
+        printf 'honey-badger-install: cannot read package list: %s\n' "$FILE" >&2
+        exit 1
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        line="${line//$'\r'/}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || continue
+        PACKAGES+=("$line")
+    done < "$FILE"
+    if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+        mapfile -t PACKAGES < <(printf '%s\n' "${PACKAGES[@]}" | awk '!seen[$0]++')
+    fi
+fi
 
 if [[ "$ACTION" == "search" ]]; then
     # Any remaining words form the search term, so options may come first.
@@ -93,9 +130,9 @@ if [[ ${#PACKAGES[@]} -eq 0 ]]; then
 fi
 
 for arg in "${PACKAGES[@]}"; do
-    if [[ ! "$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*$ ]]; then
+    if [[ ! "$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:/@-]*$ ]]; then
         hb_err "Invalid package name: $arg"
-        printf '  Package names may contain letters, digits, dots, hyphens, underscores, plus signs, and colons.\n' >&2
+        printf '  Package names may contain letters, digits, dots, hyphens, underscores, plus signs, colons, slashes, and @.\n' >&2
         exit 1
     fi
 done

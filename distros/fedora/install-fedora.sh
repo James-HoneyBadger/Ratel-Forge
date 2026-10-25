@@ -83,43 +83,25 @@ install_dnf_packages() {
     fi
 }
 
-# ── XFCE service setup (Fedora-specific) ─────────────────────────────────────
-setup_xfce_fedora() {
-    hb_next_step "Setting up XFCE desktop for Fedora..."
-    # Install XFCE group
-    local pm
-    pm="$(get_pm)"
-    hb_sudo "$pm" groupinstall -y "Xfce Desktop" 2>/dev/null || true
-    hb_sudo systemctl set-default graphical.target 2>/dev/null || true
-    setup_xfce
-}
-
 # ── Main installation by type ───────────────────────────────────────────────
 install_packages_by_type() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     log_info "Installation type: $install_type"
     install_dnf_packages BASE_PACKAGES "base"
+    install_dnf_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_dnf_packages DEVELOPER_PACKAGES "developer"
-            install_dnf_packages DESKTOP_PACKAGES "desktop"
             install_dnf_packages APPLICATIONS_PACKAGES "applications"
-            setup_xfce_fedora
             ;;
         "developer")
             install_dnf_packages DEVELOPER_PACKAGES "developer"
-            install_dnf_packages DESKTOP_PACKAGES "basic desktop"
-            setup_xfce_fedora
             ;;
-        "desktop")
-            install_dnf_packages DESKTOP_PACKAGES "desktop"
+        "apps")
             install_dnf_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python3" "python3-pip" "nodejs" "npm" "git")
-            install_dnf_packages basic_dev "basic development"
-            setup_xfce_fedora
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -158,10 +140,10 @@ main() {
         hb_set_total_steps 0
     else
         case "$install_type" in
-            full)      hb_set_total_steps 15 ;;
-            developer) hb_set_total_steps 14 ;;
-            desktop)   hb_set_total_steps 11 ;;
-            minimal)   hb_set_total_steps 4 ;;
+            full)      hb_set_total_steps 12 ;;
+            developer) hb_set_total_steps 11 ;;
+            apps)      hb_set_total_steps 7 ;;
+            minimal)   hb_set_total_steps 6 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -170,18 +152,15 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo $pm update -y" \
         "sudo $pm install -y" \
         "sudo $pm autoremove -y && sudo $pm clean all" \
         "$pm search" \
-        "sudo $pm remove -y"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo $pm remove -y" \
+        "$(get_pm) check-update -q"
+
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_dev_fedora
     fi

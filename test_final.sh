@@ -25,7 +25,7 @@ test_syntax_all() {
         install.sh
         lib/common.sh
         lib/ui.sh
-        lib/theme.sh
+        lib/editor.sh
         lib/utilities.sh
         distros/arch/install-arch.sh
         distros/debian/install-debian.sh
@@ -39,11 +39,12 @@ test_syntax_all() {
         assets/honey-badger-info
         assets/honey-badger-update
         assets/honey-badger-install
-        assets/honey-badger-theme
+        assets/honey-badger-report
         assets/honey-badger-doctor
         assets/honey-badger-uninstall
         completions/honey-badger.bash
         completions/honey-badger.zsh
+        scripts/check-no-desktop-layer.sh
         uninstall.sh
     )
     for script in "${scripts[@]}"; do
@@ -73,9 +74,7 @@ test_source_common() {
         declare -f log_error >/dev/null 2>&1 || exit 1
         declare -f log_warning >/dev/null 2>&1 || exit 1
         declare -f setup_nano >/dev/null 2>&1 || exit 1
-        declare -f setup_honey_badger_theme >/dev/null 2>&1 || exit 1
-        declare -f setup_xfce >/dev/null 2>&1 || exit 1
-        declare -f install_assets >/dev/null 2>&1 || exit 1
+        declare -f setup_shell >/dev/null 2>&1 || exit 1
         declare -f setup_git >/dev/null 2>&1 || exit 1
         declare -f setup_docker >/dev/null 2>&1 || exit 1
         declare -f create_utility_scripts >/dev/null 2>&1 || exit 1
@@ -93,6 +92,8 @@ test_source_common() {
         declare -f hb_acquire_lock >/dev/null 2>&1 || exit 1
         declare -f hb_register_temp >/dev/null 2>&1 || exit 1
         declare -f hb_skip_component >/dev/null 2>&1 || exit 1
+        declare -f hb_component_enabled >/dev/null 2>&1 || exit 1
+        declare -f hb_effective_components >/dev/null 2>&1 || exit 1
         declare -f log_debug >/dev/null 2>&1 || exit 1
         declare -f hb_rollback_init >/dev/null 2>&1 || exit 1
         declare -f hb_load_checkpoint >/dev/null 2>&1 || exit 1
@@ -212,28 +213,14 @@ test_config_file() {
     fi
 }
 
-# ── Test 8: GTK theme is valid CSS ────────────────────────────────────────
-test_theme() {
-    echo -e "\n=== THEME VALIDATION ==="
-    log_test "GTK3 theme file exists and is non-empty"
-    if [[ -s "$SCRIPT_DIR/theme/honey-badger-theme.css" ]]; then
-        log_pass "honey-badger-theme.css exists and is non-empty"
+# ── Test 8: no desktop-environment or login code ─────────────────────────
+test_no_desktop_layer() {
+    echo -e "\n=== DESKTOP-LAYER GUARD ==="
+    log_test "Code contains no desktop-environment or login handling"
+    if bash "$SCRIPT_DIR/scripts/check-no-desktop-layer.sh" >/dev/null 2>&1; then
+        log_pass "No desktop-environment or login code detected"
     else
-        log_fail "honey-badger-theme.css is missing or empty"
-    fi
-
-    log_test "GTK3 theme defines color variables"
-    if grep -q "@define-color" "$SCRIPT_DIR/theme/honey-badger-theme.css"; then
-        log_pass "Theme defines color variables"
-    else
-        log_fail "Theme missing color variables"
-    fi
-
-    log_test "GTK2 theme file (gtkrc-2.0) exists"
-    if [[ -s "$SCRIPT_DIR/theme/gtkrc-2.0" ]]; then
-        log_pass "gtkrc-2.0 exists and is non-empty"
-    else
-        log_fail "gtkrc-2.0 is missing or empty"
+        log_fail "Desktop-environment or login code detected"
     fi
 }
 
@@ -445,19 +432,26 @@ test_config_validation() {
     fi
 }
 
-# ── Test 18: --skip-theme flag ─────────────────────────────────────────────
-test_skip_theme_flag() {
-    echo -e "\n=== SKIP THEME FLAG ==="
-    log_test "install.sh accepts --skip-theme flag"
+# ── Test 18: desktop-only flags are gone ──────────────────────────────────
+test_desktop_flags_absent() {
+    echo -e "\n=== DESKTOP FLAGS REMOVED ==="
+    log_test "install.sh --help no longer advertises desktop options"
     local output
-    if output=$(bash "$SCRIPT_DIR/install.sh" --help 2>&1); then
-        if echo "$output" | grep -q "skip-theme"; then
-            log_pass "install.sh --help mentions --skip-theme"
-        else
-            log_fail "install.sh --help missing --skip-theme"
-        fi
-    else
+    if ! output=$(bash "$SCRIPT_DIR/install.sh" --help 2>&1); then
         log_fail "install.sh --help failed"
+        return 0
+    fi
+    if echo "$output" | grep -qiE 'high-contrast|font-size|skip-theme|no-theme|xfce'; then
+        log_fail "install.sh --help still mentions desktop options"
+    else
+        log_pass "install.sh --help has no desktop options"
+    fi
+
+    log_test "install.sh rejects the removed --skip-theme flag"
+    if bash "$SCRIPT_DIR/install.sh" --skip-theme >/dev/null 2>&1; then
+        log_fail "--skip-theme was still accepted"
+    else
+        log_pass "--skip-theme is rejected"
     fi
 }
 
@@ -486,7 +480,7 @@ test_list_types() {
         log_fail "install.sh --list-types exited non-zero"
         return 0
     fi
-    for t in full developer desktop minimal; do
+    for t in full developer apps minimal; do
         echo "$output" | grep -qi "$t" || ok=0
     done
     if [[ $ok -eq 1 ]]; then
@@ -534,25 +528,22 @@ test_dry_run_no_writes() {
     rm -rf "$tmp_dir"
 }
 
-# ── Test 23: theme metadata consistency ───────────────────────────────────
-test_theme_metadata() {
-    echo -e "\n=== THEME METADATA ==="
-    log_test "Theme descriptor and palette agree on the Ratel name"
-    if grep -q "^Name=Ratel" "$SCRIPT_DIR/theme/index.theme" 2>/dev/null; then
-        log_pass "theme/index.theme declares the Ratel metatheme"
+# ── Test 23: config carries no desktop appearance settings ────────────────
+test_config_identity() {
+    echo -e "\n=== CONFIG IDENTITY ==="
+    log_test "Config declares the release identity"
+    if grep -q '^HONEY_BADGER_VERSION=' "$SCRIPT_DIR/config/honey-badger-os.conf"; then
+        log_pass "Config declares HONEY_BADGER_VERSION"
     else
-        log_fail "theme/index.theme is missing Name=Ratel"
+        log_fail "Config is missing HONEY_BADGER_VERSION"
     fi
 
-    log_test "Config defines the full palette"
-    local key ok=1
-    for key in BG SURFACE BASE BORDER TEXT MUTED_TEXT ACCENT ACCENT_TEXT; do
-        grep -q "^HONEY_BADGER_THEME_${key}=" "$SCRIPT_DIR/config/honey-badger-os.conf" || ok=0
-    done
-    if [[ $ok -eq 1 ]]; then
-        log_pass "All palette tokens are defined"
+    log_test "Config has no theme or wallpaper settings"
+    if grep -qiE '^HONEY_BADGER_(THEME|FONT|MONO_FONT|WALLPAPER)' \
+        "$SCRIPT_DIR/config/honey-badger-os.conf"; then
+        log_fail "Config still defines theme or wallpaper settings"
     else
-        log_fail "Config is missing palette tokens"
+        log_pass "Config is free of theme and wallpaper settings"
     fi
 }
 
@@ -673,10 +664,10 @@ test_profile_disk_requirement() {
     output=$(HOME="$tmp_dir" timeout 90 bash "$SCRIPT_DIR/install.sh" \
         --check --type full --no-color 2>&1 || true)
     rm -rf "$tmp_dir"
-    if echo "$output" | grep -q "9 GB required for full"; then
-        log_pass "Full requires 9 GB"
+    if echo "$output" | grep -q "8 GB required for full"; then
+        log_pass "Full requires 8 GB"
     else
-        log_fail "Full did not report a 9 GB requirement"
+        log_fail "Full did not report an 8 GB requirement"
     fi
 }
 
@@ -730,21 +721,32 @@ test_component_normalization() {
 # ── Test 30: options that do not apply are reported ────────────────────────
 test_option_coherence() {
     echo -e "\n=== OPTION COHERENCE ==="
-    log_test "Desktop-only options are dropped on a Minimal install"
+    log_test "Minimal ignores component overrides"
     local out
     out=$(
         source "$SCRIPT_DIR/install.sh"
         export HONEY_BADGER_INSTALL_TYPE=minimal
-        export HONEY_BADGER_HIGH_CONTRAST=1
-        export HONEY_BADGER_FONT="Noto Sans 16"
-        _HB_FONT_SIZE_SET=1
-        check_option_coherence minimal
-        printf 'hc=%s font=%s' "${HONEY_BADGER_HIGH_CONTRAST:-unset}" "${HONEY_BADGER_FONT:-unset}"
+        export HONEY_BADGER_COMPONENTS="base,dev,apps"
+        check_option_coherence minimal 2>/dev/null
+        printf 'components=%s' "${HONEY_BADGER_COMPONENTS:-unset}"
     )
-    if [[ "$out" == *"hc=0"* && "$out" == *"font=unset"* ]]; then
-        log_pass "Minimal drops --high-contrast and --font-size"
+    if [[ "$out" == *"components=unset"* ]]; then
+        log_pass "Minimal ignores --components and installs base only"
     else
-        log_fail "Minimal kept desktop-only options: $out"
+        log_fail "Minimal kept component selection: $out"
+    fi
+
+    log_test "Components outside the selected profile are reported"
+    out=$(
+        source "$SCRIPT_DIR/install.sh"
+        export HONEY_BADGER_INSTALL_TYPE=apps
+        export HONEY_BADGER_COMPONENTS="base,dev"
+        check_option_coherence apps 2>&1
+    )
+    if [[ "$out" == *"does not install the 'dev' component"* ]]; then
+        log_pass "apps profile reports the unusable dev component"
+    else
+        log_fail "Profile/component mismatch was not reported: $out"
     fi
 }
 
@@ -770,13 +772,12 @@ test_install_metadata() {
     ) >/dev/null 2>&1 || true
 
     local info="$tmp_dir/.local/share/honey-badger/install-info"
-    log_test "Full install records components, desktop, and theme variant"
-    if grep -qx 'HONEY_BADGER_COMPONENTS="base,dev,desktop,apps"' "$info" 2>/dev/null &&
-       grep -qx 'HONEY_BADGER_HAS_DESKTOP=1' "$info" 2>/dev/null &&
-       grep -qx 'HONEY_BADGER_THEME_VARIANT="Ratel"' "$info" 2>/dev/null; then
-        log_pass "install-info describes a desktop install"
+    log_test "Full install records the developer component set"
+    if grep -qx 'HONEY_BADGER_COMPONENTS="base,dev,apps"' "$info" 2>/dev/null &&
+       ! grep -q 'HONEY_BADGER_HAS_DESKTOP\|HONEY_BADGER_THEME_VARIANT' "$info" 2>/dev/null; then
+        log_pass "install-info describes a developer install"
     else
-        log_fail "install-info is missing desktop metadata"
+        log_fail "install-info is missing developer metadata"
     fi
 
     log_test "Package manager commands are recorded for the utilities"
@@ -789,7 +790,7 @@ test_install_metadata() {
 
     log_test "All utility commands and the uninstaller are installed"
     local missing=0 cmd
-    for cmd in info update install theme doctor uninstall; do
+    for cmd in info update install report doctor uninstall; do
         [[ -x "$tmp_dir/.local/bin/honey-badger-$cmd" ]] || missing=$((missing + 1))
     done
     if [[ $missing -eq 0 && -f "$tmp_dir/.local/share/honey-badger/uninstall.sh" ]]; then
@@ -807,7 +808,7 @@ test_install_metadata() {
 
     log_test "honey-badger-info --json emits valid JSON"
     if HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" "$tmp_dir/.local/bin/honey-badger-info" --json \
-        | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["install_type"]=="full" and d["theme_variant"]=="Ratel"' 2>/dev/null; then
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["install_type"]=="full" and "dev" in d["components"]' 2>/dev/null; then
         log_pass "info --json is machine readable"
     else
         log_fail "info --json did not produce valid JSON"
@@ -843,7 +844,7 @@ test_install_metadata() {
         log_fail "doctor --json did not produce valid JSON"
     fi
 
-    log_test "honey-badger-doctor passes on a complete desktop install"
+    log_test "honey-badger-doctor passes on a complete install"
     local doctor_out
     doctor_out=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
         "$tmp_dir/.local/bin/honey-badger-doctor" 2>&1 || true)
@@ -859,7 +860,7 @@ test_install_metadata() {
 # ── Test 32: reporting is profile aware ────────────────────────────────────
 test_profile_aware_reporting() {
     echo -e "\n=== PROFILE-AWARE REPORTING ==="
-    local tmp_dir minimal_out desktop_out
+    local tmp_dir minimal_out full_out
     tmp_dir=$(mktemp -d)
 
     minimal_out=$(
@@ -872,7 +873,7 @@ test_profile_aware_reporting() {
         hb_set_total_steps 1
         show_post_install
     )
-    desktop_out=$(
+    full_out=$(
         export HOME="$tmp_dir"
         export HONEY_BADGER_ROOT="$SCRIPT_DIR"
         export HONEY_BADGER_INSTALL_TYPE=full
@@ -883,58 +884,234 @@ test_profile_aware_reporting() {
         show_post_install
     )
 
-    log_test "Minimal summary omits desktop-only guidance"
-    if [[ "$minimal_out" != *"sudo reboot"* && "$minimal_out" != *"honey-badger-theme"* \
-          && "$minimal_out" == *"source ~/.bashrc"* ]]; then
-        log_pass "Minimal summary is CLI-focused"
+    log_test "Minimal summary is CLI-focused"
+    if [[ "$minimal_out" == *"source ~/.bashrc"* && "$minimal_out" != *"sudo reboot"* \
+          && "$minimal_out" != *"honey-badger-theme"* ]]; then
+        log_pass "Minimal summary has no desktop guidance"
     else
         log_fail "Minimal summary still mentions desktop steps"
     fi
 
-    log_test "Desktop summary includes theme and doctor commands"
-    if [[ "$desktop_out" == *"sudo reboot"* && "$desktop_out" == *"honey-badger-theme"* \
-          && "$desktop_out" == *"honey-badger-doctor"* && "$desktop_out" == *"honey-badger-uninstall"* ]]; then
-        log_pass "Desktop summary lists the full command set"
+    log_test "Full summary lists the developer command set"
+    if [[ "$full_out" == *"honey-badger-info"* && "$full_out" == *"honey-badger-doctor"* \
+          && "$full_out" == *"honey-badger-uninstall"* && "$full_out" != *"sudo reboot"* ]]; then
+        log_pass "Full summary lists info, doctor, and uninstall"
     else
-        log_fail "Desktop summary is missing commands"
+        log_fail "Full summary is missing commands"
     fi
 
-    log_test "Doctor skips theme checks on a Minimal install"
+    log_test "Doctor skips toolchain checks on a Minimal install"
     mkdir -p "$tmp_dir/.local/share/honey-badger"
     cat > "$tmp_dir/.local/share/honey-badger/install-info" << 'EOF'
-HONEY_BADGER_VERSION="2.5.0"
+HONEY_BADGER_VERSION="3.0.0"
 HONEY_BADGER_INSTALL_TYPE="minimal"
 HONEY_BADGER_COMPONENTS="base"
-HONEY_BADGER_HAS_DESKTOP=0
-HONEY_BADGER_THEME_VARIANT="none"
 EOF
     mkdir -p "$tmp_dir/.local/bin"
     local cmd
-    for cmd in info update install theme doctor uninstall; do
+    for cmd in info update install report doctor uninstall; do
         printf '#!/bin/bash\nexit 0\n' > "$tmp_dir/.local/bin/honey-badger-$cmd"
         chmod 755 "$tmp_dir/.local/bin/honey-badger-$cmd"
     done
     local doctor_status=0 doctor_out2=""
     doctor_out2=$(HOME="$tmp_dir" PATH="$tmp_dir/.local/bin:$PATH" \
         bash "$SCRIPT_DIR/assets/honey-badger-doctor" 2>&1) || doctor_status=$?
-    if [[ "$doctor_out2" == *"theme checks skipped"* && "$doctor_out2" != *"GTK theme"* ]]; then
-        log_pass "Doctor is profile aware (no theme failure on Minimal)"
+    if [[ "$doctor_out2" == *"toolchain checks skipped"* && "$doctor_out2" != *"GTK theme"* ]]; then
+        log_pass "Doctor is profile aware (no toolchain check on Minimal)"
     else
-        log_fail "Doctor still checks the theme on Minimal: $doctor_out2"
+        log_fail "Doctor still checks toolchains on Minimal: $doctor_out2"
     fi
     if [[ $doctor_status -eq 0 ]]; then
-        log_pass "Doctor exits 0 when only the desktop is missing"
+        log_pass "Doctor exits 0 on a Minimal install"
     else
         log_fail "Doctor exited $doctor_status on a Minimal install"
     fi
 
-    log_test "honey-badger-theme explains that Minimal has no theme"
-    local theme_out theme_status=0
-    theme_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-theme" status 2>&1) || theme_status=$?
-    if [[ $theme_status -eq 0 && "$theme_out" == *"No desktop is installed"* ]]; then
-        log_pass "Theme command is profile aware"
+    rm -rf "$tmp_dir"
+}
+
+# ── Test 33: shell and tool configuration ─────────────────────────────────
+test_shell_layer() {
+    echo -e "\n=== SHELL & TOOL CONFIGURATION ==="
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local run_status=0
+    (
+        export HOME="$tmp_dir"
+        export XDG_CONFIG_HOME="$tmp_dir/.config"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_VERBOSITY=0
+        export LOG_FILE="$tmp_dir/install.log"
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        setup_shell
+    ) >/dev/null 2>&1 || run_status=$?
+
+    log_test "setup_shell completes without error"
+    if [[ $run_status -eq 0 ]]; then
+        log_pass "setup_shell completed"
     else
-        log_fail "Theme status was not profile aware: $theme_out"
+        log_fail "setup_shell exited $run_status"
+    fi
+
+    log_test "Shell fragments and tool configs are written"
+    local missing=0 f
+    for f in ".config/ratel/shell/00-env.sh" ".config/ratel/shell/10-aliases.sh" \
+             ".config/ratel/shell/20-tools.sh" ".inputrc" ".editorconfig" \
+             ".config/bat/config" ".config/ripgrep/config" ".config/tmux/tmux.conf"; do
+        [[ -f "$tmp_dir/$f" ]] || missing=$((missing + 1))
+    done
+    if [[ $missing -eq 0 ]]; then
+        log_pass "All shell and tool configuration files exist"
+    else
+        log_fail "$missing configuration file(s) missing"
+    fi
+
+    log_test "Shell fragments parse cleanly"
+    local bad=0
+    for f in "$tmp_dir"/.config/ratel/shell/*.sh; do
+        bash -n "$f" || bad=$((bad + 1))
+    done
+    if [[ $bad -eq 0 ]]; then
+        log_pass "Shell fragments pass bash -n"
+    else
+        log_fail "$bad fragment(s) have syntax errors"
+    fi
+
+    log_test "~/.bashrc sources the fragment directory"
+    local hits
+    hits=$(grep -Fc 'ratel/shell/*.sh' "$tmp_dir/.bashrc" 2>/dev/null || true)
+    if [[ "${hits:-0}" -eq 1 ]]; then
+        log_pass "Fragment source line is present once"
+    else
+        log_fail "Fragment source line count was ${hits:-0}"
+    fi
+
+    log_test "Second run is idempotent"
+    (
+        export HOME="$tmp_dir"
+        export XDG_CONFIG_HOME="$tmp_dir/.config"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_VERBOSITY=0
+        export LOG_FILE="$tmp_dir/install2.log"
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        setup_shell
+    ) >/dev/null 2>&1 || true
+    hits=$(grep -Fc 'ratel/shell/*.sh' "$tmp_dir/.bashrc" 2>/dev/null || true)
+    if [[ "${hits:-0}" -eq 1 ]]; then
+        log_pass "Re-running setup_shell does not duplicate the source line"
+    else
+        log_fail "Source line duplicated (${hits:-0} occurrences)"
+    fi
+
+    log_test "Dry-run writes no shell configuration"
+    local dry_dir
+    dry_dir=$(mktemp -d)
+    (
+        export HOME="$dry_dir"
+        export XDG_CONFIG_HOME="$dry_dir/.config"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_VERBOSITY=0
+        export HONEY_BADGER_DRY_RUN=1
+        export LOG_FILE="$dry_dir/install.log"
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        setup_shell
+    ) >/dev/null 2>&1 || true
+    if [[ ! -e "$dry_dir/.config/ratel" && ! -e "$dry_dir/.inputrc" ]]; then
+        log_pass "Dry-run left the shell configuration untouched"
+    else
+        log_fail "Dry-run created shell configuration"
+    fi
+    rm -rf "$dry_dir" "$tmp_dir"
+}
+
+# ── Test 34: extended utilities ───────────────────────────────────────────
+test_extended_utilities() {
+    echo -e "\n=== EXTENDED UTILITIES ==="
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    mkdir -p "$tmp_dir/.local/share/honey-badger"
+    cat > "$tmp_dir/.local/share/honey-badger/pm.conf" << 'ENDPM'
+HB_PM_UPDATE='sudo apt update && sudo apt upgrade -y'
+HB_PM_INSTALL='sudo apt install -y'
+HB_PM_CLEAN='sudo apt autoremove -y'
+HB_PM_SEARCH='apt-cache search'
+HB_PM_REMOVE='sudo apt purge -y'
+HB_PM_CHECK='apt list --upgradable'
+ENDPM
+    cat > "$tmp_dir/.local/share/honey-badger/install-info" << 'ENDINFO'
+HONEY_BADGER_VERSION="3.0.0"
+HONEY_BADGER_CODENAME="Fearless"
+HONEY_BADGER_INSTALL_TYPE="developer"
+HONEY_BADGER_COMPONENTS="base,dev"
+HONEY_BADGER_DISTRO="debian"
+ENDINFO
+    cat > "$tmp_dir/packages.txt" << 'ENDPKG'
+# developer tools
+ripgrep
+jq
+
+ripgrep
+ENDPKG
+
+    log_test "honey-badger-install --file reads packages and dedupes"
+    local file_out
+    file_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-install" \
+        --file "$tmp_dir/packages.txt" --dry-run 2>&1 || true)
+    if [[ "$file_out" == *"ripgrep"* && "$file_out" == *"jq"* ]] \
+        && [[ $(echo "$file_out" | grep -o 'ripgrep' | wc -l) -eq 1 ]]; then
+        log_pass "Package file is read, comments skipped, duplicates removed"
+    else
+        log_fail "Package file handling was wrong: $file_out"
+    fi
+
+    log_test "honey-badger-install --file rejects an unreadable path"
+    if HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-install" \
+        --file "$tmp_dir/missing.txt" --dry-run >/dev/null 2>&1; then
+        log_fail "Missing package file was accepted"
+    else
+        log_pass "Missing package file is rejected"
+    fi
+
+    log_test "honey-badger-update --check prints the check command"
+    local check_out
+    check_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-update" \
+        --check --dry-run 2>&1 || true)
+    if [[ "$check_out" == *"[DRY-RUN]"* && "$check_out" == *"apt list --upgradable"* ]]; then
+        log_pass "Update check is wired to the package manager"
+    else
+        log_fail "Update check output unexpected: $check_out"
+    fi
+
+    log_test "honey-badger-report produces a redacted report"
+    mkdir -p "$tmp_dir/.local/share/honey-badger/logs"
+    printf 'user=%s home=%s\n' "$USER" "$tmp_dir" \
+        > "$tmp_dir/.local/share/honey-badger/logs/honeybadger-test.log"
+    local report_out
+    report_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-report" 2>&1 || true)
+    if [[ "$report_out" == *"RATEL FORGE — ENVIRONMENT REPORT"* \
+          && "$report_out" == *"Version: 3.0.0"* \
+          && "$report_out" == *"<user>"* && "$report_out" == *"~"* ]] \
+        && [[ "$report_out" != *"$tmp_dir"* ]]; then
+        log_pass "Report includes install data and redacts home/user"
+    else
+        log_fail "Report output was not redacted as expected"
+    fi
+
+    log_test "honey-badger-report --output writes a mode-600 file"
+    local report_path="$tmp_dir/report.txt" report_mode
+    HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-report" \
+        --no-log --output "$report_path" >/dev/null 2>&1 || true
+    report_mode=$(stat -c '%a' "$report_path" 2>/dev/null || true)
+    if [[ -s "$report_path" && "$report_mode" == "600" ]]; then
+        log_pass "Report file written with mode 600"
+    else
+        log_fail "Report file missing or has mode '${report_mode:-none}'"
     fi
 
     rm -rf "$tmp_dir"
@@ -952,7 +1129,7 @@ run_final_tests() {
     test_bashrc_idempotent
     test_json_functions
     test_config_file
-    test_theme
+    test_no_desktop_layer
     test_progress_tracking
     test_backup_file
     test_skip_component
@@ -962,12 +1139,14 @@ run_final_tests() {
     test_show_banner
     test_init_distro_log
     test_config_validation
-    test_skip_theme_flag
+    test_desktop_flags_absent
     test_version_flag
     test_list_types
     test_invalid_type
     test_dry_run_no_writes
-    test_theme_metadata
+    test_config_identity
+    test_shell_layer
+    test_extended_utilities
     test_package_manifest_loader
     test_phase_resume
     test_install_type_selection

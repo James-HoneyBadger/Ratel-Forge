@@ -45,6 +45,7 @@ install_yay() {
         log_info "Skipping yay (apps and dev components disabled)"
         return 0
     fi
+    hb_next_step "Installing yay AUR helper..."
     if command -v yay >/dev/null 2>&1; then
         log_info "yay AUR helper already installed"
         return 0
@@ -53,7 +54,6 @@ install_yay() {
         log_info "[DRY-RUN] Would build and install the yay AUR helper"
         return 0
     fi
-    hb_next_step "Installing yay AUR helper..."
     hb_sudo pacman -S --noconfirm --needed base-devel git
     local temp_dir
     temp_dir="$(mktemp -d)"
@@ -116,13 +116,13 @@ install_aur_packages() {
         return 0
     fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then return 0; fi
+    hb_next_step "Installing $package_type AUR packages..."
     if hb_dry_run; then
         for package in "${packages_ref[@]}"; do
             log_info "[DRY-RUN] Would install AUR package: $package"
         done
         return 0
     fi
-    hb_next_step "Installing $package_type AUR packages..."
     for package in "${packages_ref[@]}"; do
         if pacman -Qi "$package" >/dev/null 2>&1; then
             log_info "$package already installed"
@@ -140,32 +140,27 @@ install_packages_by_type() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     log_info "Installation type: $install_type"
     install_pacman_packages BASE_PACKAGES "base"
+    install_pacman_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_pacman_packages DEVELOPER_PACKAGES "developer"
-            install_pacman_packages DESKTOP_PACKAGES "desktop"
             install_pacman_packages APPLICATIONS_PACKAGES "applications"
             install_yay
             install_aur_packages AUR_PACKAGES "AUR"
-            setup_xfce
             ;;
         "developer")
             install_pacman_packages DEVELOPER_PACKAGES "developer"
-            install_pacman_packages DESKTOP_PACKAGES "basic desktop"
             install_yay
             local -a dev_aur=("visual-studio-code-bin" "postman-bin")
             install_aur_packages dev_aur "development AUR"
-            setup_xfce
             ;;
-        "desktop")
-            install_pacman_packages DESKTOP_PACKAGES "desktop"
+        "apps")
             install_pacman_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python" "python-pip" "nodejs" "npm" "git")
-            install_pacman_packages basic_dev "basic development"
-            setup_xfce
+            install_yay
+            install_aur_packages AUR_PACKAGES "AUR"
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -190,8 +185,8 @@ main() {
         case "$install_type" in
             full)      hb_set_total_steps 13 ;;
             developer) hb_set_total_steps 12 ;;
-            desktop)   hb_set_total_steps 10 ;;
-            minimal)   hb_set_total_steps 4 ;;
+            apps)      hb_set_total_steps 9 ;;
+            minimal)   hb_set_total_steps 6 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -199,18 +194,14 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo pacman -Syu --noconfirm" \
         "sudo pacman -S --needed --noconfirm" \
         "sudo pacman -Sc --noconfirm" \
         "pacman -Ss" \
-        "sudo pacman -Rns --noconfirm"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo pacman -Rns --noconfirm" \
+        "pacman -Qu"
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_development_environment
     fi

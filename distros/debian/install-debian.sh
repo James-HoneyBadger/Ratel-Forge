@@ -40,6 +40,13 @@ update_system() {
 add_repositories() {
     hb_next_step "Adding additional repositories..."
 
+    # Repository setup fetches keys and rewrites apt sources; skip the
+    # whole step in dry-run so the preview stays compact.
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would add the Node.js, GitHub CLI, and VS Code repositories"
+        return 0
+    fi
+
     # Add universe repository for Ubuntu
     if command -v add-apt-repository >/dev/null 2>&1; then
         if lsb_release -i 2>/dev/null | grep -q Ubuntu; then
@@ -224,31 +231,26 @@ install_packages_by_type() {
     log_info "Installation type: $install_type"
     add_repositories
     install_apt_packages BASE_PACKAGES "base"
+    install_apt_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_apt_packages DEVELOPER_PACKAGES "developer"
-            install_apt_packages DESKTOP_PACKAGES "desktop"
             install_apt_packages APPLICATIONS_PACKAGES "applications"
             install_snap_packages SNAP_PACKAGES "Snap"
             install_flatpak_packages FLATPAK_PACKAGES "Flatpak"
-            setup_xfce
             ;;
         "developer")
             install_apt_packages DEVELOPER_PACKAGES "developer"
-            install_apt_packages DESKTOP_PACKAGES "basic desktop"
             local -a dev_snaps=("postman")
             install_snap_packages dev_snaps "development Snap"
-            setup_xfce
             ;;
-        "desktop")
-            install_apt_packages DESKTOP_PACKAGES "desktop"
+        "apps")
             install_apt_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python3" "python3-pip" "nodejs" "npm" "git")
-            install_apt_packages basic_dev "basic development"
-            setup_xfce
+            install_snap_packages SNAP_PACKAGES "Snap"
+            install_flatpak_packages FLATPAK_PACKAGES "Flatpak"
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -271,10 +273,10 @@ main() {
         hb_set_total_steps 0
     else
         case "$install_type" in
-            full)      hb_set_total_steps 16 ;;
-            developer) hb_set_total_steps 14 ;;
-            desktop)   hb_set_total_steps 11 ;;
-            minimal)   hb_set_total_steps 5 ;;
+            full)      hb_set_total_steps 14 ;;
+            developer) hb_set_total_steps 12 ;;
+            apps)      hb_set_total_steps 10 ;;
+            minimal)   hb_set_total_steps 7 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -283,18 +285,14 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo apt update && sudo apt upgrade -y" \
         "sudo apt install -y" \
         "sudo apt autoremove -y && sudo apt autoclean" \
         "apt-cache search" \
-        "sudo apt purge -y"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo apt purge -y" \
+        "apt list --upgradable 2>/dev/null"
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_development_environment
     fi

@@ -22,8 +22,10 @@ fi
 
 : "${HB_PM_UPDATE:=}"
 : "${HB_PM_CLEAN:=}"
+: "${HB_PM_CHECK:=}"
 
 DRY_RUN=0
+CHECK_ONLY=0
 DO_FLATPAK=1
 DO_SNAP=1
 DO_CLEAN=1
@@ -38,6 +40,7 @@ Updates system packages, then Flatpak and Snap packages when installed,
 and cleans the package cache. Uses sudo where required.
 
 Options:
+      --check      List available updates without installing them
   -n, --dry-run    Show the commands that would run
       --no-flatpak Do not update Flatpak packages
       --no-snap    Do not refresh Snap packages
@@ -46,6 +49,7 @@ Options:
 EOF
             exit 0
             ;;
+        --check)      CHECK_ONLY=1 ;;
         -n|--dry-run) DRY_RUN=1 ;;
         --no-flatpak) DO_FLATPAK=0 ;;
         --no-snap)    DO_SNAP=0 ;;
@@ -69,6 +73,40 @@ run() {
     hb_info "$label"
     bash -c "$cmd"
 }
+
+# Package managers signal "updates available" with a non-zero exit (dnf uses
+# 100), so check failures are informational rather than fatal.
+run_check() {
+    local label="$1" cmd="$2"
+    [[ -n "$cmd" ]] || return 0
+    if [[ $DRY_RUN -eq 1 ]]; then
+        hb_info "[DRY-RUN] $label: $cmd"
+        return 0
+    fi
+    hb_info "$label"
+    bash -c "$cmd" || true
+}
+
+if [[ $CHECK_ONLY -eq 1 ]]; then
+    hb_header "Available updates"
+    [[ $DRY_RUN -eq 1 ]] && hb_info "Dry run: nothing will change"
+
+    if [[ -z "$HB_PM_CHECK" ]]; then
+        hb_warn "System package checks are not configured for this system"
+    else
+        run_check "Checking system packages…" "$HB_PM_CHECK"
+    fi
+    if [[ $DO_FLATPAK -eq 1 ]] && command -v flatpak >/dev/null 2>&1; then
+        run_check "Checking Flatpak packages…" "flatpak remote-ls --updates"
+    fi
+    if [[ $DO_SNAP -eq 1 ]] && command -v snap >/dev/null 2>&1; then
+        run_check "Checking Snap packages…" "snap refresh --list"
+    fi
+
+    hb_rule
+    hb_ok "Update check complete"
+    exit 0
+fi
 
 hb_header "System update"
 [[ $DRY_RUN -eq 1 ]] && hb_info "Dry run: nothing will change"

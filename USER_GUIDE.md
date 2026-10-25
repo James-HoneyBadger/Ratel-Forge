@@ -1,15 +1,27 @@
 # Ratel Forge — User Guide
 
-Ratel Forge configures a complete development and desktop environment on a Linux
-system you already run. This guide covers day-to-day use; see the
-[README](README.md) for the full option reference.
+Ratel Forge turns a Linux system you already run into a development machine:
+language toolchains, containers, editors, database clients, developer
+applications, and a consistent set of utilities.
+
+This is the quick guide. The complete documentation set is:
+
+- **[User Manual](docs/USER_MANUAL.md)** — every option, utility, setting, and
+  troubleshooting step
+- **[Technical Reference](docs/TECHNICAL_REFERENCE.md)** — internals and APIs
+- **[Instructions](docs/INSTRUCTIONS.md)** — task playbooks
+- **[README](README.md)** — project overview
+
+Ratel Forge never installs or reconfigures a desktop environment, display
+manager, greeter, session, or login behaviour. Your desktop and login stay
+exactly as your distribution set them up.
 
 ## Before you start
 
 - A supported Linux installation (see below)
 - A regular user account with `sudo` (or `wheel`) privileges
 - Outbound network access
-- Free disk space: 1 GB minimal, 2 GB developer, 3 GB desktop, 6 GB full
+- Free disk space: 1 GB minimal, 2 GB developer, 3 GB applications, 5 GB full
 
 Do **not** run the installer as root. It requests privileged access per step.
 
@@ -41,10 +53,10 @@ logged.
 
 | Type | Disk | Best for |
 |------|------|----------|
-| Full | 6–9 GB | A workstation with everything configured |
-| Developer | 2–4 GB | Languages, containers, editors, XFCE (no office/media apps) |
-| Desktop | 3–5 GB | XFCE, networking/audio/fonts, browsers, office, media |
-| Minimal | 0.3–0.8 GB | Servers: CLI tools only |
+| Full | 5–8 GB | A development workstation with toolchains and GUI apps |
+| Developer | 2–4 GB | Languages, containers, editors, DB clients (no GUI apps) |
+| Applications | 3–5 GB | GUI developer apps and browsers (no toolchains) |
+| Minimal | 0.5–1.0 GB | Servers: CLI tools only, including the modern toolkit |
 
 You can skip the menu with `--type`:
 
@@ -97,17 +109,15 @@ install type is discarded automatically.
 
 ```bash
 ./install.sh --type full --components base,dev
-./install.sh --type full --components base,desktop,apps
+./install.sh --type full --components base,apps
 ```
 
-Components are `base`, `dev`, `desktop`, and `apps`. `base` is always installed
-and is added automatically if you leave it out, so a filter can never produce a
-system without `git`, `curl`, or editor basics. Minimal installs use `base` only;
+Components are `base`, `dev`, and `apps`. The `base` group includes both the
+core CLI tools and the modern toolkit (`jq`, `ripgrep`, `fd`, `bat`, `fzf`,
+`zoxide`, `direnv`, `delta`, and friends). `base` is always installed and is
+added automatically if you leave it out, so a filter can never produce a system
+without `git`, `curl`, or editor basics. Minimal installs use `base` only;
 `--components` is ignored there and the installer says so.
-
-Narrowing to a list without `desktop` also means no theme, fonts, or desktop
-commands, so `--high-contrast` and `--font-size` are reported as ignored rather
-than quietly advertised in the summary.
 
 ### Skipping components
 
@@ -116,7 +126,7 @@ than quietly advertised in the summary.
 ```
 
 Available: `--skip-docker`, `--skip-python`, `--skip-node`, `--skip-nano`,
-`--skip-theme`, `--skip-git`.
+`--skip-shell`, `--skip-git`.
 
 ### Accessibility and terminals
 
@@ -133,27 +143,26 @@ Available: `--skip-docker`, `--skip-python`, `--skip-node`, `--skip-nano`,
 honey-badger-info                     # system, hardware, and install details
 honey-badger-info --json              # same data for scripts and dashboards
 honey-badger-update                   # update packages, Flatpak, Snap; clean cache
+honey-badger-update --check           # list available updates without installing
 honey-badger-update --dry-run         # show the commands without running them
 honey-badger-install ripgrep          # install packages with the native manager
+honey-badger-install --file tools.txt # install packages listed in a file
 honey-badger-install --search ripgrep # search the repositories
 honey-badger-install --remove vim     # remove packages
-honey-badger-theme status             # active theme, icons, wallpaper
-honey-badger-theme palette            # print the palette with swatches
-honey-badger-theme apply              # re-apply the theme live
-honey-badger-theme apply high-contrast
-honey-badger-doctor                   # diagnose theme/settings/runtime issues
+honey-badger-doctor                   # diagnose metadata/toolchains/runtime issues
 honey-badger-doctor --json            # machine-readable diagnostics
+honey-badger-report                   # redacted report for a bug report
+honey-badger-report --output r.txt    # write it to a mode-600 file
 honey-badger-uninstall                # remove Ratel Forge customizations
 ```
 
 All are in `~/.local/bin` (added to `PATH` in `~/.bashrc`). Bash completion is
 installed for them, so `<Tab>` completes subcommands and flags.
 
-On Minimal installs the theme commands are still installed but there is no
-theme to manage, and `honey-badger-doctor` reports "theme checks skipped"
-instead of failing. `honey-badger-uninstall` removes the theme, the utility
-commands, the generated configuration, and the install metadata — packages stay
-installed, exactly like `uninstall.sh`.
+On Minimal installs `honey-badger-doctor` reports "toolchain checks skipped"
+instead of failing. `honey-badger-uninstall` removes the utility commands,
+generated configuration, and install metadata — packages stay installed, exactly
+like `uninstall.sh`.
 
 ### What changed
 
@@ -163,62 +172,36 @@ installed, exactly like `uninstall.sh`.
 | Nano | `~/.nanorc`, `~/.nano/backups` |
 | Shell | `PATH` entries and editor defaults in `~/.bashrc` |
 | Git | `~/.gitconfig` (only if no identity was set) |
-| Theme | `~/.themes/Ratel`, `/usr/share/themes/Ratel`, `~/.icons/Ratel` |
-| GTK settings | `~/.config/gtk-3.0/settings.ini`, `~/.gtkrc-2.0` |
-| XFCE | `~/.config/xfce4/xfconf/xfce-perchannel-xml/{xsettings,xfwm4}.xml` |
-| LightDM | `/etc/lightdm/lightdm.conf`, `lightdm-gtk-greeter.conf` |
-| Wallpaper | `/usr/share/backgrounds/honeybadger.jpg` |
+| Docker | Docker service enabled and the user added to the `docker` group |
+| Shell fragments | `~/.config/ratel/shell/*.sh` plus one source line in `~/.bashrc` |
+| Readline | `~/.inputrc` (history search, case-insensitive completion) |
+| Tool config | `~/.config/bat/config`, `~/.config/ripgrep/config`, `~/.config/tmux/tmux.conf` |
+| EditorConfig | `~/.editorconfig` |
+| Git defaults | `~/.gitconfig`, `~/.config/git/ignore` |
 | Utilities | `~/.local/bin/honey-badger-*`, `~/.local/share/honey-badger/` |
 
 Backups of overwritten user files are kept beside the originals with a
 `.hb-backup` suffix.
 
-### Rebooting
+### Shell and tool settings
 
-Desktop types: `sudo reboot` to start LightDM with the new theme.
-Minimal: `source ~/.bashrc` (or open a new terminal).
+Shell configuration is written as fragments under `~/.config/ratel/shell/`:
+`00-env.sh` (environment and tool paths), `10-aliases.sh` (interactive aliases),
+and `20-tools.sh` (optional `fzf`, `zoxide`, and `direnv` hooks). A single line in
+`~/.bashrc` sources them, so adding your own file to that directory is enough to
+extend the setup.
 
-## The desktop theme
+Use `--skip-shell` to leave shell and tool configuration untouched. Nothing here
+writes to login files, PAM, or `/etc/profile`; the desktop and login behaviour of
+the distribution are never changed.
 
-The Ratel theme is a warm dark theme designed for long sessions:
-
-- Espresso surfaces (`#16120d` / `#201a14`) instead of pure black
-- Honey accent (`#e6a92e`) for selection, focus, and progress
-- Warm off-white text (`#f3ebdf`) with muted sand secondary text (`#b8a992`)
-- Squared-off 4–6 px radii, slim scrollbars, 2 px focus rings
-
-It applies to GTK3 and GTK2 applications, the XFCE panel and window manager
-chrome, and the LightDM greeter.
-
-### High contrast and font size
+### Reloading your shell
 
 ```bash
-./install.sh --type desktop --high-contrast
-./install.sh --type desktop --font-size 13
+source ~/.bashrc
 ```
 
-`Ratel-HC` uses pure-black surfaces, thicker borders, and 3 px focus rings, with
-every foreground at AAA contrast. Both variants are installed, so you can switch
-later:
-
-```bash
-honey-badger-theme apply high-contrast
-honey-badger-theme apply default
-```
-
-`--font-size` sets both the interface and monospace fonts (8–24 px). To use
-different font families, set `HONEY_BADGER_FONT` and `HONEY_BADGER_MONO_FONT`.
-
-### Changing the palette
-
-Edit `config/honey-badger-os.conf` before installing, or override at runtime:
-
-```bash
-HONEY_BADGER_THEME_ACCENT="#4f9cf0" ./install.sh --type desktop
-```
-
-The wallpaper is generated from the same palette at the size given by
-`HONEY_BADGER_WALLPAPER_SIZE` (default `1920x1080`).
+or open a new terminal. Log out and back in after Docker adds you to its group.
 
 ## Changing what gets installed
 
@@ -229,10 +212,25 @@ array of the same name:
 [BASE_PACKAGES]
 curl
 wget
+
+[DEVELOPER_PACKAGES]
+python3
+nodejs
+
+[APPLICATIONS_PACKAGES]
+firefox
 ```
 
 Add or remove one entry per line, then run the installer again — provisioning is
 idempotent. Entries may contain spaces (snap flags such as `code --classic`).
+
+Components map to sections:
+
+| Component | Section | Installed by |
+|-----------|---------|--------------|
+| `base` | `BASE_PACKAGES` + `CLI_TOOLS_PACKAGES` | every type |
+| `dev` | `DEVELOPER_PACKAGES` | `full`, `developer` |
+| `apps` | `APPLICATIONS_PACKAGES` | `full`, `apps` |
 
 ## Logs and diagnostics
 
@@ -242,6 +240,8 @@ idempotent. Entries may contain spaces (snap flags such as `code --classic`).
 - Checkpoint: `~/.local/share/honey-badger/checkpoint` (informational; installs
   are idempotent, so re-running converges)
 - Rollback manifest: `~/.local/share/honey-badger/rollback-manifest`
+- Shareable report: `honey-badger-report` (redacts your home directory and user
+  name; `--output` writes it with mode 600)
 
 ## Troubleshooting
 
@@ -251,11 +251,11 @@ idempotent. Entries may contain spaces (snap flags such as `code --classic`).
 | `No network connectivity detected` | Verify DNS and HTTPS egress; the probe tries DNS, `host`, `ping`, then `curl` |
 | `Insufficient disk space` | Use a smaller type; `--check` reports free space |
 | `Unsupported distribution` | Open an issue with the output of `cat /etc/os-release` |
-| Theme unchanged after install | Log out and back in; confirm the `xsettings.xml` file exists |
 | Docker permission errors | Log out and back in so the group membership applies |
-| Fonts look wrong after install | Run `honey-badger-theme apply`, then log out and back in |
+| Toolchain not found in a new shell | `source ~/.bashrc`, then `honey-badger-doctor` |
 | An interrupt left the machine half-configured | Re-run with `--resume` |
 | Unsure what is broken | Run `honey-badger-doctor` |
+| Filing a bug | Run `honey-badger-report` and review the output before sharing |
 
 ## Uninstalling
 
@@ -264,8 +264,8 @@ bash uninstall.sh            # interactive
 bash uninstall.sh --dry-run  # preview
 ```
 
-Removes Ratel Forge files, the user and system theme, and restores `.hb-backup`
-originals. System packages are intentionally left for your package manager:
+Removes Ratel Forge files and restores `.hb-backup` originals. System packages
+are intentionally left for your package manager:
 
 ```bash
 sudo apt remove ...      # Debian/Ubuntu

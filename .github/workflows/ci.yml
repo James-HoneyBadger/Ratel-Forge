@@ -23,7 +23,7 @@ jobs:
           failed=0
           for f in install.sh lib/*.sh uninstall.sh distros/*/install-*.sh \
                    verify_scripts.sh verify_advanced.sh test_final.sh \
-                   assets/honey-badger-*; do
+                   assets/honey-badger-* scripts/check-no-desktop-layer.sh; do
             if bash -n "$f"; then
               echo "✓ $f"
             else
@@ -48,23 +48,8 @@ jobs:
           done
           exit $failed
 
-      - name: Theme and metadata validation
-        run: |
-          test -s theme/honey-badger-theme.css
-          grep -q "@define-color" theme/honey-badger-theme.css
-          test -s theme/gtkrc-2.0
-          test -s theme/honey-badger-theme-hc.css
-          grep -q "^Name=Ratel" theme/index.theme
-          grep -q "^Name=Ratel-HC" theme/index-hc.theme
-          for key in BG SURFACE BASE BORDER TEXT MUTED_TEXT ACCENT ACCENT_TEXT; do
-            grep -q "^HONEY_BADGER_THEME_${key}=" config/honey-badger-os.conf || {
-              echo "✗ missing palette token: $key"; exit 1;
-            }
-          done
-          echo "✓ Theme files and palette tokens present"
-
-      - name: Theme lint (structure, selectors, contrast)
-        run: python3 scripts/lint-theme.py
+      - name: Desktop-layer guard
+        run: ./scripts/check-no-desktop-layer.sh
 
       - name: Config sourcing validation
         run: |
@@ -85,7 +70,8 @@ jobs:
             -e SC2034 \
             install.sh lib/common.sh uninstall.sh \
             distros/*/install-*.sh \
-            assets/honey-badger-*
+            assets/honey-badger-* \
+            scripts/check-no-desktop-layer.sh
 
   test:
     name: Test Suite

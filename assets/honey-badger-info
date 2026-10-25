@@ -52,9 +52,6 @@ codename="${HONEY_BADGER_CODENAME:-}"
 install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
 components="${HONEY_BADGER_COMPONENTS:-unknown}"
 distro="${HONEY_BADGER_DISTRO:-unknown}"
-variant="${HONEY_BADGER_THEME_VARIANT:-none}"
-font="${HONEY_BADGER_FONT:-}"
-mono_font="${HONEY_BADGER_MONO_FONT:-}"
 log_file="${HONEY_BADGER_LOG:-}"
 
 os_name="Unknown"
@@ -74,9 +71,6 @@ if [[ "$JSON" == "1" ]]; then
     printf '  "install_type": "%s",\n' "$(esc "$install_type")"
     printf '  "components": "%s",\n' "$(esc "$components")"
     printf '  "distro_family": "%s",\n' "$(esc "$distro")"
-    printf '  "theme_variant": "%s",\n' "$(esc "$variant")"
-    printf '  "ui_font": "%s",\n' "$(esc "$font")"
-    printf '  "mono_font": "%s",\n' "$(esc "$mono_font")"
     printf '  "log_file": "%s",\n' "$(esc "$log_file")"
     printf '  "os": "%s",\n' "$(esc "$os_name")"
     printf '  "kernel": "%s",\n' "$(esc "$(uname -r)")"
@@ -95,12 +89,6 @@ hb_header "System information"
 hb_kv "Operating system" "$os_name"
 hb_kv "Ratel Forge"      "v${version}${codename:+ \"$codename\"}"
 hb_kv "Install type"     "${install_type} (${components})"
-if [[ "$variant" != "none" ]]; then
-    hb_kv "Theme" "${variant}${font:+ · $font}"
-    [[ -n "$mono_font" ]] && hb_kv "Mono font" "$mono_font"
-else
-    hb_kv "Theme" "not installed (no desktop)"
-fi
 hb_rule
 hb_kv "Kernel"       "$(uname -r)"
 hb_kv "Architecture" "$(uname -m)"

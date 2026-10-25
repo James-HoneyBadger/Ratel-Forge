@@ -69,7 +69,7 @@ test_file_structure() {
     echo -e "\n=== FILE STRUCTURE VALIDATION ==="
 
     log_test "Required directories exist"
-    local required_dirs=("distros" "config" "theme" "assets" "lib" "completions")
+    local required_dirs=("distros" "config" "assets" "lib" "completions" "scripts")
     for dir in "${required_dirs[@]}"; do
         if [[ -d "$dir" ]]; then
             log_pass "Directory '$dir' exists"
@@ -163,15 +163,14 @@ test_required_functions() {
     if [[ -f lib/common.sh ]]; then
         log_test "Shared library key functions"
         local lib_funcs=("hb_sudo" "log_info" "log_success" "log_error" "setup_nano"
-                         "setup_honey_badger_theme" "setup_xfce" "install_assets"
-                         "setup_git" "setup_docker" "create_utility_scripts"
+                         "setup_git" "setup_docker" "setup_shell" "create_utility_scripts"
                          "show_post_install" "hb_json_init" "hb_json_write"
                          "ensure_bashrc_line" "is_noninteractive" "hb_next_step"
                          "hb_check_network" "hb_backup_file" "hb_acquire_lock"
                          "hb_register_temp" "hb_skip_component" "log_debug"
                          "hb_rollback_init" "hb_load_checkpoint" "hb_clear_checkpoint"
                          "hb_show_banner" "hb_init_distro_log" "hb_enable_service"
-                         "hb_component_enabled" "hb_effective_components" "hb_desktop_enabled")
+                         "hb_component_enabled" "hb_effective_components")
         for func in "${lib_funcs[@]}"; do
             if grep -qE "^${func}\s*\(\)" lib/common.sh lib/*.sh; then
                 log_pass "shared library has '$func'"
@@ -297,6 +296,16 @@ test_shared_library_parity() {
         fi
     done
 
+    log_test "All distro scripts install the shell configuration"
+    for script in distros/*/install-*.sh; do
+        local name=$(basename "$script")
+        if grep -q "hb_phase shell setup_shell" "$script"; then
+            log_pass "$name installs the shell configuration"
+        else
+            log_fail "$name never runs setup_shell"
+        fi
+    done
+
     log_test "All distro scripts use hb_sudo"
     for script in distros/*/install-*.sh; do
         local name=$(basename "$script")
@@ -311,7 +320,7 @@ test_shared_library_parity() {
     for script in distros/*/install-*.sh; do
         local name=$(basename "$script")
         local has_all=true
-        for itype in full developer desktop minimal; do
+        for itype in full developer apps minimal; do
             if ! grep -q "\"$itype\"" "$script"; then
                 has_all=false
             fi
@@ -335,20 +344,17 @@ test_new_project_files() {
         "LICENSE"
         "completions/honey-badger.bash"
         "completions/honey-badger.zsh"
-        "theme/index.theme"
-        "theme/index-hc.theme"
-        "theme/honey-badger-theme-hc.css"
         "assets/ratel-logo.svg"
+        "assets/honey-badger-report"
         "lib/ui.sh"
-        "lib/theme.sh"
+        "lib/editor.sh"
+        "lib/shell.sh"
         "lib/utilities.sh"
         "lib/packages.sh"
         "Makefile"
         "justfile"
         "schema/honeybadger-summary.schema.json"
-        "scripts/lint-theme.py"
-        "scripts/generate_theme_variants.py"
-        "scripts/theme-screenshot.sh"
+        "scripts/check-no-desktop-layer.sh"
     )
     for pf in "${project_files[@]}"; do
         log_test "Project file '$pf' exists"
@@ -382,7 +388,34 @@ test_package_manifests() {
         else
             log_fail "$family provisioner does not load its manifest"
         fi
+
+        log_test "$family manifest has modern CLI tooling"
+        local tools
+        tools=$(awk '/^\[CLI_TOOLS_PACKAGES\]$/{f=1;next}/^\[/{f=0}f && $0 !~ /^#/' "$manifest")
+        if [[ -n "$tools" ]] && echo "$tools" | grep -qE '(^|/)jq$'; then
+            log_pass "$manifest declares CLI tooling including jq"
+        else
+            log_fail "$manifest is missing a populated CLI_TOOLS_PACKAGES section"
+        fi
+
+        log_test "$family provisioner installs the CLI tooling"
+        if grep -q "CLI_TOOLS_PACKAGES" "distros/${family}/install-${family}.sh"; then
+            log_pass "$family provisioner installs CLI_TOOLS_PACKAGES"
+        else
+            log_fail "$family provisioner never installs CLI_TOOLS_PACKAGES"
+        fi
     done
+}
+
+# Test 12: no desktop-environment or login handling
+test_no_desktop_layer() {
+    echo -e "\n=== DESKTOP-LAYER GUARD ==="
+    log_test "Code contains no desktop-environment or login handling"
+    if bash scripts/check-no-desktop-layer.sh >/dev/null 2>&1; then
+        log_pass "No desktop-environment or login code detected"
+    else
+        log_fail "Desktop-environment or login code detected"
+    fi
 }
 
 # Main test runner
@@ -401,6 +434,7 @@ run_all_tests() {
     test_shared_library_parity
     test_new_project_files
     test_package_manifests
+    test_no_desktop_layer
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
     echo -e "\n============================================="

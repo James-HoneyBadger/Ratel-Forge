@@ -85,41 +85,25 @@ enable_runit_service() {
     fi
 }
 
-# ── XFCE setup (Void-specific with runit) ───────────────────────────────────
-setup_xfce_void() {
-    hb_next_step "Setting up XFCE desktop for Void Linux..."
-    enable_runit_service "lightdm"
-    enable_runit_service "NetworkManager"
-    enable_runit_service "dbus"
-    setup_xfce
-}
-
 # ── Main installation by type ───────────────────────────────────────────────
 install_packages_by_type() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     log_info "Installation type: $install_type"
     install_xbps_packages BASE_PACKAGES "base"
+    install_xbps_packages CLI_TOOLS_PACKAGES "base tools"
     case "$install_type" in
         "full")
             install_xbps_packages DEVELOPER_PACKAGES "developer"
-            install_xbps_packages DESKTOP_PACKAGES "desktop"
             install_xbps_packages APPLICATIONS_PACKAGES "applications"
-            setup_xfce_void
             ;;
         "developer")
             install_xbps_packages DEVELOPER_PACKAGES "developer"
-            install_xbps_packages DESKTOP_PACKAGES "basic desktop"
-            setup_xfce_void
             ;;
-        "desktop")
-            install_xbps_packages DESKTOP_PACKAGES "desktop"
+        "apps")
             install_xbps_packages APPLICATIONS_PACKAGES "applications"
-            local -a basic_dev=("python3" "python3-pip" "nodejs" "git")
-            install_xbps_packages basic_dev "basic development"
-            setup_xfce_void
             ;;
         "minimal")
-            log_info "Minimal installation - desktop environment skipped"
+            log_info "Minimal installation - CLI tools only"
             ;;
         *)
             log_error "Unknown installation type: $install_type"
@@ -155,10 +139,10 @@ main() {
         hb_set_total_steps 0
     else
         case "$install_type" in
-            full)      hb_set_total_steps 14 ;;
-            developer) hb_set_total_steps 13 ;;
-            desktop)   hb_set_total_steps 11 ;;
-            minimal)   hb_set_total_steps 4 ;;
+            full)      hb_set_total_steps 11 ;;
+            developer) hb_set_total_steps 10 ;;
+            apps)      hb_set_total_steps 7 ;;
+            minimal)   hb_set_total_steps 6 ;;
         esac
     fi
     hb_phases_init "$install_type"
@@ -167,18 +151,15 @@ main() {
     hb_phase update update_system
     hb_phase packages install_packages_by_type
     hb_phase nano setup_nano
+    hb_phase shell setup_shell
     hb_phase utilities create_utility_scripts \
         "sudo xbps-install -Syu" \
         "sudo xbps-install -y" \
         "sudo xbps-remove -Oo" \
         "xbps-query -Rs" \
-        "sudo xbps-remove -R"
-    if hb_desktop_enabled; then
-        if ! hb_skip_component "theme"; then
-            hb_phase theme setup_honey_badger_theme
-            hb_phase assets install_assets
-        fi
-    fi
+        "sudo xbps-remove -R" \
+        "xbps-install -un"
+
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
         hb_phase dev setup_docker_void
     fi

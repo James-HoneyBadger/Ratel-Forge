@@ -1,0 +1,150 @@
+#!/bin/bash
+# Ratel Forge — environment report for bug reports
+set -uo pipefail
+
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/install-info" ]] && source "$HB_SHARE/install-info"
+
+OUTPUT=""
+INCLUDE_LOG=1
+LOG_LINES=40
+
+usage() {
+    cat <<'ENDUSAGE'
+Usage: honey-badger-report [options]
+
+Collects installation, system, and tool-version details into one redacted
+report. Nothing is uploaded; review it yourself before sharing.
+
+Options:
+      --output <path>  Write the report to a file (mode 600) instead of stdout
+      --no-log         Omit the recent log tail
+  -h, --help           Show this help message
+
+Redaction replaces your home directory and user name.
+ENDUSAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --no-log) INCLUDE_LOG=0; shift ;;
+        --output)
+            if [[ $# -lt 2 || -z "${2:-}" ]]; then
+                printf 'honey-badger-report: --output requires a path\n' >&2
+                exit 2
+            fi
+            OUTPUT="$2"
+            shift 2
+            ;;
+        *)
+            printf 'honey-badger-report: unknown option: %s\n' "$1" >&2
+            printf 'Try honey-badger-report --help\n' >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Redact the values most likely to identify a person. Hostnames are left
+# alone because they can collide with OS names (for example "Arch"); the
+# header asks the reporter to review the output before sharing.
+_redact() {
+    local line user="${USER:-}"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ ${#HOME} -gt 1 ]]; then
+            line="${line//"$HOME"/\~}"
+        fi
+        if [[ ${#user} -ge 3 ]]; then
+            line="${line//"$user"/<user>}"
+        fi
+        printf '%s\n' "$line"
+    done
+}
+
+# Debian/Ubuntu ship fd as fdfind and bat as batcat.
+_resolve_tool() {
+    case "$1" in
+        fd)  command -v fd || command -v fdfind ;;
+        bat) command -v bat || command -v batcat ;;
+        *)   command -v "$1" ;;
+    esac
+}
+
+_tool_version() {
+    case "$1" in
+        go)   "$1" version ;;
+        java) "$1" -version ;;
+        tmux) "$1" -V ;;
+        *)    "$1" --version ;;
+    esac 2>&1 | head -n 1
+}
+
+_report_tmp="$(mktemp "${TMPDIR:-/tmp}/ratel-report.XXXXXX")"
+trap 'rm -f "${_report_tmp:-}" "${_report_tmp:-}.redacted"' EXIT
+
+{
+    printf 'RATEL FORGE — ENVIRONMENT REPORT\n'
+    printf 'Generated: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'Review this report for sensitive values before sharing.\n\n'
+
+    printf '[Installation]\n'
+    printf 'Version: %s\n' "${HONEY_BADGER_VERSION:-unknown}"
+    printf 'Codename: %s\n' "${HONEY_BADGER_CODENAME:-unknown}"
+    printf 'Install type: %s\n' "${HONEY_BADGER_INSTALL_TYPE:-unknown}"
+    printf 'Components: %s\n' "${HONEY_BADGER_COMPONENTS:-unknown}"
+    printf 'Distro family: %s\n' "${HONEY_BADGER_DISTRO:-unknown}"
+    printf 'Log: %s\n\n' "${HONEY_BADGER_LOG:-unknown}"
+
+    printf '[System]\n'
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck source=/dev/null
+        . /etc/os-release
+        printf 'OS: %s\n' "${PRETTY_NAME:-unknown}"
+    fi
+    printf 'Kernel: %s\n' "$(uname -r)"
+    printf 'Architecture: %s\n' "$(uname -m)"
+    printf 'Shell: %s\n' "${SHELL##*/}"
+    printf 'Locale: %s\n\n' "${LC_ALL:-${LC_CTYPE:-${LANG:-unknown}}}"
+
+    printf '[Tool versions]\n'
+    for tool in git curl jq python3 node npm go rustc java docker \
+                rg fd bat fzf zoxide direnv delta shellcheck shfmt tmux; do
+        tool_path="$(_resolve_tool "$tool" 2>/dev/null || true)"
+        if [[ -n "$tool_path" ]]; then
+            printf '%-12s %s\n' "$tool" "$(_tool_version "$tool_path" | tr -d '\r')"
+        else
+            printf '%-12s %s\n' "$tool" "(not installed)"
+        fi
+    done
+    printf '\n'
+
+    if command -v honey-badger-doctor >/dev/null 2>&1; then
+        printf '[Diagnostics]\n'
+        honey-badger-doctor --json 2>/dev/null || true
+        printf '\n'
+    fi
+
+    if [[ $INCLUDE_LOG -eq 1 ]]; then
+        _latest_log="$(find "$HB_SHARE/logs" -maxdepth 1 -name '*.log' -printf '%T@ %p\n' 2>/dev/null \
+            | sort -rn | head -n 1 | cut -d' ' -f2-)"
+        if [[ -n "$_latest_log" ]]; then
+            printf '[Log tail: %s]\n' "${_latest_log##*/}"
+            tail -n "$LOG_LINES" "$_latest_log"
+            printf '\n'
+        fi
+    fi
+} > "$_report_tmp"
+
+_redact < "$_report_tmp" > "$_report_tmp.redacted"
+
+if [[ -n "$OUTPUT" ]]; then
+    if install -m 600 "$_report_tmp.redacted" "$OUTPUT" 2>/dev/null; then
+        printf 'Report written to %s\n' "$OUTPUT"
+    else
+        printf 'honey-badger-report: cannot write %s\n' "$OUTPUT" >&2
+        exit 1
+    fi
+else
+    cat "$_report_tmp.redacted"
+fi

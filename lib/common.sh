@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Ratel Forge - Shared library entry point
 # ---------------------------------------------------------------------------
-# Loads the UI layer, runtime configuration, and the desktop/utility layers,
+# Loads the UI layer, runtime configuration, and the editor/utility layers,
 # then provides the core runtime: sudo wrapper, progress, locking, checkpoints,
 # rollback manifest, JSON summary, network checks, service management, and the
 # development-environment helpers.
@@ -32,20 +32,14 @@ source "$HONEY_BADGER_ROOT/lib/packages.sh"
 # ── Source config file (with key validation) ────────────────────────────────
 _HB_VALID_CONFIG_KEYS=(
     HONEY_BADGER_VERSION HONEY_BADGER_CODENAME HONEY_BADGER_BUILD_DATE
-    HONEY_BADGER_THEME_BG HONEY_BADGER_THEME_SURFACE HONEY_BADGER_THEME_BASE
-    HONEY_BADGER_THEME_BORDER HONEY_BADGER_THEME_TEXT HONEY_BADGER_THEME_MUTED_TEXT
-    HONEY_BADGER_THEME_ACCENT HONEY_BADGER_THEME_ACCENT_TEXT
-    HONEY_BADGER_THEME_WARNING HONEY_BADGER_THEME_ERROR
-    HONEY_BADGER_THEME_SUCCESS HONEY_BADGER_THEME_INFO
-    HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT HONEY_BADGER_THEME_VARIANT
     EDITOR VISUAL
     HONEY_BADGER_DEV_MODE
     HONEY_BADGER_SKIP_DOCKER HONEY_BADGER_SKIP_PYTHON
-    HONEY_BADGER_SKIP_NODE HONEY_BADGER_SKIP_NANO HONEY_BADGER_SKIP_THEME
+    HONEY_BADGER_SKIP_NODE HONEY_BADGER_SKIP_NANO HONEY_BADGER_SKIP_SHELL
     HONEY_BADGER_SKIP_GIT
     HONEY_BADGER_GIT_USERNAME HONEY_BADGER_GIT_EMAIL
     HONEY_BADGER_LOG_COUNT HONEY_BADGER_NETWORK_TIMEOUT
-    HONEY_BADGER_MIN_DISK_GB HONEY_BADGER_WALLPAPER_SIZE
+    HONEY_BADGER_MIN_DISK_GB
     HONEY_BADGER_NPM_GLOBAL_PATH
 )
 
@@ -483,7 +477,7 @@ hb_enable_service() {
 }
 
 # ── Component selection ─────────────────────────────────────────────────────
-# Components describe package groups: base, dev, desktop, apps.
+# Components describe package groups: base, dev, apps.
 # HONEY_BADGER_COMPONENTS is a comma-separated subset; unset means all.
 hb_component_enabled() {
     local name="$1"
@@ -494,13 +488,12 @@ hb_component_enabled() {
     esac
 }
 
-# Map a package-group label ("developer", "basic desktop", …) to a component.
+# Map a package-group label ("developer", "applications", …) to a component.
 hb_component_for_label() {
     local label="${1,,}"
     case "$label" in
         *base*)                                 printf 'base' ;;
         *developer*|*development*|*dev*)        printf 'dev' ;;
-        *desktop*|*xfce*)                       printf 'desktop' ;;
         *application*|*snap*|*flatpak*|*aur*)   printf 'apps' ;;
         *)                                      printf 'base' ;;
     esac
@@ -510,25 +503,23 @@ hb_component_allowed() {
     hb_component_enabled "$(hb_component_for_label "$1")"
 }
 
-# Components actually installed by the selected profile. Minimal installs are
-# base-only, so component filters have no effect there.
+# Components actually installed by the selected profile. The install type
+# selects the candidate groups and --components narrows them further; base is
+# the floor and is always reported.
 hb_effective_components() {
-    if [[ "${HONEY_BADGER_INSTALL_TYPE:-full}" == "minimal" ]]; then
-        printf 'base'
-        return 0
-    fi
+    local type="${HONEY_BADGER_INSTALL_TYPE:-full}"
+    local candidates
+    case "$type" in
+        minimal)   candidates="base" ;;
+        developer) candidates="base dev" ;;
+        apps)      candidates="base apps" ;;
+        *)         candidates="base dev apps" ;;
+    esac
     local out="" c
-    for c in base dev desktop apps; do
+    for c in $candidates; do
         hb_component_enabled "$c" && out="${out:+$out,}$c"
     done
     printf '%s' "${out:-base}"
-}
-
-# True when the selected profile installs a graphical desktop (and therefore
-# the theme, fonts, and desktop-only utilities).
-hb_desktop_enabled() {
-    [[ "${HONEY_BADGER_INSTALL_TYPE:-full}" == "minimal" ]] && return 1
-    hb_component_enabled desktop
 }
 
 # True when any skip flag or component filter is active, which makes the
@@ -538,7 +529,7 @@ hb_skip_active() {
     local var
     for var in HONEY_BADGER_SKIP_DOCKER HONEY_BADGER_SKIP_PYTHON \
                HONEY_BADGER_SKIP_NODE HONEY_BADGER_SKIP_NANO \
-               HONEY_BADGER_SKIP_THEME HONEY_BADGER_SKIP_GIT; do
+               HONEY_BADGER_SKIP_SHELL HONEY_BADGER_SKIP_GIT; do
         [[ "${!var:-0}" == "1" ]] && return 0
     done
     return 1
@@ -609,10 +600,6 @@ hb_json_write() {
     end_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     local distro="${HONEY_BADGER_DISTRO:-unknown}"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
-    local theme_variant="none"
-    if hb_desktop_enabled; then
-        theme_variant="$(hb_theme_name)"
-    fi
 
     # Build JSON arrays safely
     local pkgs_json="" p
@@ -647,7 +634,6 @@ hb_json_write() {
   "distro": "$(_hb_json_escape "$distro")",
   "install_type": "$(_hb_json_escape "$install_type")",
   "components": "$(_hb_json_escape "$(hb_effective_components)")",
-  "theme_variant": "$(_hb_json_escape "$theme_variant")",
   "status": "${status}",
   "dry_run": ${dry_run},
   "start_time": "${_HB_JSON_START_TIME}",
@@ -662,11 +648,19 @@ ENDJSON
 
 
 # ── Git configuration ────────────────────────────────────────────────────────
+# Set a global value only when the user has not chosen one already.
+_hb_git_default() {
+    local key="$1" value="$2"
+    if ! git config --global --get "$key" >/dev/null 2>&1; then
+        git config --global "$key" "$value"
+    fi
+}
+
 setup_git() {
     hb_next_step "Configuring Git..."
 
     if hb_dry_run; then
-        log_info "[DRY-RUN] Would configure the Git identity"
+        log_info "[DRY-RUN] Would configure Git identity, defaults, and pager"
         return 0
     fi
 
@@ -675,40 +669,82 @@ setup_git() {
         return 0
     fi
 
-    if git config --global user.name >/dev/null 2>&1; then
-        log_info "Git identity already configured"
+    if ! command -v git >/dev/null 2>&1; then
+        log_warning "git is not installed; skipping Git configuration"
         return 0
     fi
 
-    local git_username="" git_email=""
-    if is_noninteractive; then
-        git_username="${HONEY_BADGER_GIT_USERNAME:-}"
-        git_email="${HONEY_BADGER_GIT_EMAIL:-}"
-        if [[ -z "$git_username" || -z "$git_email" ]]; then
-            log_warning "Skipping Git identity setup in non-interactive mode"
-            log_info "Set HONEY_BADGER_GIT_USERNAME and HONEY_BADGER_GIT_EMAIL to configure automatically"
-            return 0
-        fi
+    if git config --global user.name >/dev/null 2>&1; then
+        log_info "Git identity already configured"
     else
-        git_username="$(hb_prompt "Git user name")"
-        git_email="$(hb_prompt "Git email")"
-        if [[ -z "$git_username" || -z "$git_email" ]]; then
-            log_warning "Git identity left unset (empty input)"
-            return 0
+        local git_username="" git_email=""
+        if is_noninteractive; then
+            git_username="${HONEY_BADGER_GIT_USERNAME:-}"
+            git_email="${HONEY_BADGER_GIT_EMAIL:-}"
+            if [[ -z "$git_username" || -z "$git_email" ]]; then
+                log_warning "Skipping Git identity setup in non-interactive mode"
+                log_info "Set HONEY_BADGER_GIT_USERNAME and HONEY_BADGER_GIT_EMAIL to configure automatically"
+            fi
+        else
+            git_username="$(hb_prompt "Git user name")"
+            git_email="$(hb_prompt "Git email")"
+            if [[ -z "$git_username" || -z "$git_email" ]]; then
+                log_warning "Git identity left unset (empty input)"
+            elif [[ ! "$git_email" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+                log_warning "That does not look like an email address; skipping Git identity"
+                git_username=""
+            fi
         fi
-        if [[ ! "$git_email" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
-            log_warning "That does not look like an email address; skipping Git configuration"
-            return 0
+
+        if [[ -n "$git_username" && -n "$git_email" ]]; then
+            git config --global user.name "$git_username"
+            git config --global user.email "$git_email"
+            hb_json_add_config "~/.gitconfig"
+            log_success "Git identity configured"
         fi
     fi
 
-    git config --global user.name "$git_username"
-    git config --global user.email "$git_email"
-    git config --global init.defaultBranch main
-    git config --global pull.rebase false
+    _hb_git_default init.defaultBranch main
+    _hb_git_default pull.rebase false
+    _hb_git_default merge.conflictStyle zdiff3
+    _hb_git_default rerere.enabled true
+    _hb_git_default rebase.autoStash true
+    _hb_git_default push.autoSetupRemote true
+    _hb_git_default fetch.prune true
 
-    hb_json_add_config "~/.gitconfig"
-    log_success "Git identity configured"
+    local editor_cmd="" candidate
+    for candidate in nano vim vi; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            editor_cmd="$candidate"
+            break
+        fi
+    done
+    [[ -n "$editor_cmd" ]] && _hb_git_default core.editor "$editor_cmd"
+
+    if command -v delta >/dev/null 2>&1; then
+        _hb_git_default core.pager delta
+        _hb_git_default interactive.diffFilter "delta --color-only"
+        _hb_git_default delta.navigate true
+        _hb_git_default delta.line-numbers true
+    fi
+
+    local excludes="${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore"
+    mkdir -p "$(dirname "$excludes")"
+    if [[ ! -f "$excludes" ]]; then
+        cat > "$excludes" << 'ENDGITIGNORE'
+# Managed by Ratel Forge
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+ENDGITIGNORE
+        hb_json_add_config "~/.config/git/ignore"
+    fi
+    _hb_git_default core.excludesFile "$excludes"
+
+    log_success "Git defaults applied"
 }
 
 # ── Docker setup (with privilege warning) ────────────────────────────────────
@@ -771,8 +807,8 @@ setup_python_dev() {
         return 0
     fi
 
-    $python_cmd -m pip install --user --upgrade pip setuptools wheel 2>/dev/null || true
-    $python_cmd -m pip install --user pipx 2>/dev/null || true
+    "$python_cmd" -m pip install --user --upgrade pip setuptools wheel 2>/dev/null || true
+    "$python_cmd" -m pip install --user pipx 2>/dev/null || true
     log_success "Python development environment configured"
 }
 
@@ -798,6 +834,10 @@ setup_node_dev() {
     npm config set prefix "$npm_global"
     ensure_bashrc_line "export PATH=${npm_global}/bin:\$PATH"
 
+    npm config set fund false 2>/dev/null || true
+    npm config set audit-level high 2>/dev/null || true
+    npm config set update-notifier false 2>/dev/null || true
+
     npm install -g typescript ts-node nodemon eslint prettier 2>/dev/null || true
     log_success "Node.js development environment configured"
 }
@@ -818,8 +858,10 @@ setup_development_environment() {
 }
 
 
-# ── Desktop and utility layers ───────────────────────────────────────────────
-# shellcheck source=lib/theme.sh
-source "$HONEY_BADGER_ROOT/lib/theme.sh"
+# ── Editor, shell, and utility layers ────────────────────────────────────────
+# shellcheck source=lib/editor.sh
+source "$HONEY_BADGER_ROOT/lib/editor.sh"
+# shellcheck source=lib/shell.sh
+source "$HONEY_BADGER_ROOT/lib/shell.sh"
 # shellcheck source=lib/utilities.sh
 source "$HONEY_BADGER_ROOT/lib/utilities.sh"

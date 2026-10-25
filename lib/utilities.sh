@@ -4,7 +4,7 @@
 # Ratel Forge - Utility command generation and post-install report
 # ---------------------------------------------------------------------------
 # Installs honey-badger-* commands from assets/, writes their metadata
-# (install-info, pm.conf, palette.env, ui.sh), and renders the post-install
+# (install-info, pm.conf, ui.sh), and renders the post-install
 # summary.
 #
 # Sourced by lib/common.sh; do not source directly.
@@ -18,19 +18,21 @@ readonly _HB_UTILITIES_LOADED=1
 # Creates distro-aware utility scripts. Caller passes the package manager
 # commands, which are recorded in ~/.local/share/honey-badger/pm.conf so the
 # installed commands stay data-driven.
-#   create_utility_scripts <update> <install> <clean> [search] [remove]
+#   create_utility_scripts <update> <install> <clean> [search] [remove] [check]
 # E.g.: create_utility_scripts \
 #           "sudo pacman -Syu --noconfirm" \
 #           "sudo pacman -S --needed --noconfirm" \
 #           "sudo pacman -Sc --noconfirm" \
 #           "pacman -Ss" \
-#           "sudo pacman -Rns --noconfirm"
+#           "sudo pacman -Rns --noconfirm" \
+#           "pacman -Qu"
 create_utility_scripts() {
     local pm_update_cmd="${1:-}"
     local pm_install_cmd="${2:-}"
     local pm_clean_cmd="${3:-}"
     local pm_search_cmd="${4:-}"
     local pm_remove_cmd="${5:-}"
+    local pm_check_cmd="${6:-}"
 
     hb_next_step "Creating Ratel Forge utility scripts..."
 
@@ -95,49 +97,26 @@ HB_PM_INSTALL=${pm_install_cmd@Q}
 HB_PM_CLEAN=${pm_clean_cmd@Q}
 HB_PM_SEARCH=${pm_search_cmd@Q}
 HB_PM_REMOVE=${pm_remove_cmd@Q}
+HB_PM_CHECK=${pm_check_cmd@Q}
 ENDPM
 
     # ── Install metadata (read by every utility) ──
-    local components variant="none" has_desktop=0
+    local components
     components="$(hb_effective_components)"
-    if hb_desktop_enabled && ! hb_skip_component theme; then
-        variant="$(hb_theme_name)"
-        has_desktop=1
-    fi
     cat > "$share_dir/install-info" << ENDINFO
 # Ratel Forge install metadata — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
-HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-2.5.0}"
+HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-3.0.0}"
 HONEY_BADGER_CODENAME="${HONEY_BADGER_CODENAME:-Fearless}"
 HONEY_BADGER_INSTALL_TYPE="${HONEY_BADGER_INSTALL_TYPE:-full}"
 HONEY_BADGER_COMPONENTS="${components}"
-HONEY_BADGER_HAS_DESKTOP=${has_desktop}
-HONEY_BADGER_THEME_VARIANT="${variant}"
-HONEY_BADGER_FONT="${HONEY_BADGER_FONT:-Noto Sans 10}"
-HONEY_BADGER_MONO_FONT="${HONEY_BADGER_MONO_FONT:-Noto Sans Mono 10}"
 HONEY_BADGER_DISTRO="${HONEY_BADGER_DISTRO:-unknown}"
 HONEY_BADGER_BUILD_DATE="${HONEY_BADGER_BUILD_DATE:-unknown}"
 HONEY_BADGER_LOG="${LOG_FILE:-unknown}"
 ENDINFO
 
-    # ── Palette metadata (read by honey-badger-theme --palette) ──
-    cat > "$share_dir/palette.env" << ENDPALETTE
-RATEL_BG="${HONEY_BADGER_THEME_BG:-#16120d}"
-RATEL_SURFACE="${HONEY_BADGER_THEME_SURFACE:-#201a14}"
-RATEL_BASE="${HONEY_BADGER_THEME_BASE:-#12100b}"
-RATEL_BORDER="${HONEY_BADGER_THEME_BORDER:-#3a3128}"
-RATEL_TEXT="${HONEY_BADGER_THEME_TEXT:-#f3ebdf}"
-RATEL_MUTED_TEXT="${HONEY_BADGER_THEME_MUTED_TEXT:-#b8a992}"
-RATEL_ACCENT="${HONEY_BADGER_THEME_ACCENT:-#e6a92e}"
-RATEL_ACCENT_TEXT="${HONEY_BADGER_THEME_ACCENT_TEXT:-#1a1409}"
-RATEL_WARNING="${HONEY_BADGER_THEME_WARNING:-#e9b44c}"
-RATEL_ERROR="${HONEY_BADGER_THEME_ERROR:-#e0685c}"
-RATEL_SUCCESS="${HONEY_BADGER_THEME_SUCCESS:-#79b96f}"
-RATEL_INFO="${HONEY_BADGER_THEME_INFO:-#6aa9e0}"
-ENDPALETTE
-
     # ── Utility commands (single source of truth: assets/) ──
     local utility
-    for utility in info update install theme doctor uninstall; do
+    for utility in info update install report doctor uninstall; do
         local src="$HONEY_BADGER_ROOT/assets/honey-badger-$utility"
         if [[ -f "$src" ]]; then
             install -m 755 "$src" "$bin_dir/honey-badger-$utility"
@@ -170,13 +149,8 @@ show_post_install() {
     [[ "${_HB_POST_INSTALL_SHOWN:-0}" == "1" ]] && return 0
     _HB_POST_INSTALL_SHOWN=1
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    local version="${HONEY_BADGER_VERSION:-2.5.0}"
+    local version="${HONEY_BADGER_VERSION:-3.0.0}"
     local codename="${HONEY_BADGER_CODENAME:-}"
-    local desktop=0 variant="none"
-    if hb_desktop_enabled; then
-        desktop=1
-        variant="$(hb_theme_name)"
-    fi
 
     printf '\n'
     hb_rule
@@ -185,38 +159,22 @@ show_post_install() {
     hb_rule
 
     hb_section "Next steps"
-    if [[ $desktop -eq 1 ]]; then
-        printf '  %b1.%b Reboot to start your new desktop environment\n' "$HB_ACCENT" "$NC"
-        printf '     %bsudo reboot%b\n' "$HB_ACCENT_ALT" "$NC"
-        printf '  %b2.%b After login, run %bhoney-badger-info%b to verify the setup\n' \
-            "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
-        printf '  %b3.%b Try another palette later: %bhoney-badger-theme list%b\n' \
-            "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
-    else
-        printf '  %b1.%b Reload your shell: %bsource ~/.bashrc%b\n' \
-            "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
-        printf '  %b2.%b Verify the setup: %bhoney-badger-info%b\n' \
-            "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
-        printf '  %b3.%b Add a desktop later by re-running the installer with\n' \
-            "$HB_ACCENT" "$NC"
-        printf '     %b--type desktop%b\n' "$HB_ACCENT_ALT" "$NC"
-    fi
+    printf '  %b1.%b Reload your shell: %bsource ~/.bashrc%b\n' \
+        "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
+    printf '  %b2.%b Verify the setup: %bhoney-badger-info%b\n' \
+        "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
+    printf '  %b3.%b Diagnose problems later: %bhoney-badger-doctor%b\n' \
+        "$HB_ACCENT" "$NC" "$HB_ACCENT_ALT" "$NC"
 
     hb_section "Commands"
     hb_kv "honey-badger-info"    "system and install details" 22
     hb_kv "honey-badger-update"  "update system and packages"  22
     hb_kv "honey-badger-install" "install, search, or remove"  22
-    if [[ $desktop -eq 1 ]]; then
-        hb_kv "honey-badger-theme" "switch themes and palettes" 22
-        hb_kv "honey-badger-doctor" "diagnose the installation" 22
-    fi
+    hb_kv "honey-badger-doctor"  "diagnose the installation"   22
     hb_kv "honey-badger-uninstall" "remove Ratel Forge customizations" 22
 
     hb_section "Details"
     hb_kv "Install type"     "$install_type ($(hb_effective_components))" 22
-    if [[ "$variant" != "none" ]]; then
-        hb_kv "Theme" "$variant" 22
-    fi
     hb_kv "Installation log" "${LOG_FILE:-unknown}" 22
     hb_rule
 

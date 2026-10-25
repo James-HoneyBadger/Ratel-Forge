@@ -273,7 +273,7 @@ test_file_operations() {
 test_installation_completeness() {
     echo -e "\n=== INSTALLATION TYPE COMPLETENESS ==="
 
-    local install_types=("full" "developer" "desktop" "minimal")
+    local install_types=("full" "developer" "apps" "minimal")
     for install_type in "${install_types[@]}"; do
         log_test "Checking $install_type installation type support"
         local scripts_supporting=0
@@ -346,11 +346,12 @@ test_backup_and_temp_registration() {
         log_warn "No distro scripts register temp files"
     fi
 
-    log_test "Slackware uses hb_backup_file before config overwrites"
-    if grep -q "hb_backup_file" distros/slackware/install-slackware.sh 2>/dev/null; then
-        log_pass "Slackware backs up configs before overwriting"
+    log_test "Distro scripts never modify login or session configuration"
+    if grep -qE '/etc/inittab|\.xinitrc|graphical\.target|lightdm|display-manager' \
+        distros/*/install-*.sh 2>/dev/null; then
+        log_fail "A provisioner modifies login or session configuration"
     else
-        log_fail "Slackware does not back up configs"
+        log_pass "No login or session configuration is modified"
     fi
 }
 

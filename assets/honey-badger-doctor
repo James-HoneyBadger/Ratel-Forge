@@ -27,8 +27,8 @@ case "${1:-}" in
         cat <<'EOF'
 Usage: honey-badger-doctor [--json]
 
-Checks the theme, settings, utilities, and common runtime pitfalls.
-Theme checks are skipped automatically on installs without a desktop.
+Checks installation metadata, utilities, toolchains, shell setup, SSH
+permissions, locale, and common runtime pitfalls.
 
 Exits 0 when no blocking problem is found, 1 otherwise.
 
@@ -66,13 +66,7 @@ fail() { [[ "$JSON" == "1" ]] || hb_err "$1";  _record fail "$1"; failures=$((fa
 skip() { [[ "$JSON" == "1" ]] || hb_info "$1"; _record skipped "$1"; }
 
 install_type="${HONEY_BADGER_INSTALL_TYPE:-unknown}"
-has_desktop="${HONEY_BADGER_HAS_DESKTOP:-}"
-expected_theme="${HONEY_BADGER_THEME_VARIANT:-Ratel}"
-
-# Older metadata has no HONEY_BADGER_HAS_DESKTOP; fall back to the type.
-if [[ -z "$has_desktop" ]]; then
-    [[ "$install_type" == "minimal" ]] && has_desktop=0 || has_desktop=1
-fi
+components="${HONEY_BADGER_COMPONENTS:-unknown}"
 
 check_metadata() {
     if [[ -r "$HB_SHARE/install-info" ]]; then
@@ -82,44 +76,139 @@ check_metadata() {
     fi
 }
 
-check_theme() {
-    if [[ "$has_desktop" != "1" ]]; then
-        skip "Desktop not installed: theme checks skipped"
+# The apps and minimal profiles intentionally ship no language toolchains.
+check_toolchain() {
+    if [[ ",$components," != *",dev,"* ]]; then
+        skip "Dev component not installed: toolchain checks skipped"
         return 0
     fi
 
-    if [[ -d "$HOME/.themes/$expected_theme" ]]; then
-        ok "GTK theme installed ($expected_theme, user)"
-    elif [[ -d "/usr/share/themes/$expected_theme" ]]; then
-        warn "GTK theme installed system-wide only (no ~/.themes/$expected_theme)"
-    else
-        fail "GTK theme '$expected_theme' is not installed (run: honey-badger-theme apply)"
+    local tool found=0
+    for tool in python3 node go rustc java; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            ok "Toolchain available: $tool"
+            found=$((found + 1))
+        fi
+    done
+    if [[ $found -eq 0 ]]; then
+        warn "No language toolchain found on PATH (expected for a developer profile)"
     fi
 
-    if [[ -f "$HOME/.icons/Ratel/index.theme" ]]; then
-        ok "Icon theme descriptor present"
-    else
-        warn "Icon theme descriptor missing (~/.icons/Ratel/index.theme)"
+    if command -v code >/dev/null 2>&1; then
+        ok "Editor available: code"
     fi
+}
 
-    local ini="$HOME/.config/gtk-3.0/settings.ini"
-    if [[ -r "$ini" ]] && grep -q "^gtk-theme-name=$expected_theme\$" "$ini"; then
-        ok "GTK3 settings select $expected_theme"
-    elif [[ -r "$ini" ]]; then
-        warn "GTK3 settings do not select $expected_theme (run: honey-badger-theme apply)"
+check_path() {
+    local entries dupes
+    entries=$(printf '%s\n' "${PATH//:/$'\n'}" | sed '/^$/d')
+    dupes=$(printf '%s\n' "$entries" | sort | uniq -d)
+    if [[ -n "$dupes" ]]; then
+        warn "Duplicate PATH entries: $(printf '%s' "$dupes" | tr '\n' ' ')"
     else
-        warn "GTK3 settings file missing (~/.config/gtk-3.0/settings.ini)"
+        ok "PATH has no duplicate entries"
     fi
+}
 
-    if [[ -f "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml" ]]; then
-        ok "XFCE appearance channel present"
+check_shell_config() {
+    local shell_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ratel/shell"
+    if [[ ! -d "$shell_dir" ]]; then
+        skip "Shell fragments not installed (installer ran with --skip-shell?)"
+        return 0
+    fi
+    if grep -q 'ratel/shell' "$HOME/.bashrc" 2>/dev/null; then
+        ok "Shell fragments are installed and sourced"
     else
-        warn "XFCE appearance channel missing"
+        warn "Shell fragments exist but ~/.bashrc does not source them"
+    fi
+}
+
+check_editor_env() {
+    local editor="${EDITOR:-}"
+    if [[ -z "$editor" ]]; then
+        warn "EDITOR is not set"
+    elif command -v "${editor%% *}" >/dev/null 2>&1; then
+        ok "EDITOR is set to $editor"
+    else
+        warn "EDITOR points to a missing command: $editor"
+    fi
+}
+
+check_ssh_permissions() {
+    if [[ ! -d "$HOME/.ssh" ]]; then
+        skip "No ~/.ssh directory"
+        return 0
+    fi
+    local mode
+    mode=$(stat -c '%a' "$HOME/.ssh" 2>/dev/null || true)
+    if [[ -z "$mode" ]]; then
+        skip "Cannot determine ~/.ssh permissions"
+        return 0
+    fi
+    if [[ "$mode" == "700" ]]; then
+        ok "~/.ssh permissions are 700"
+    else
+        warn "~/.ssh permissions are $mode (expected 700)"
+    fi
+    local key
+    for key in "$HOME"/.ssh/id_*; do
+        [[ -f "$key" ]] || continue
+        [[ "$key" == *.pub ]] && continue
+        mode=$(stat -c '%a' "$key" 2>/dev/null || true)
+        [[ -n "$mode" ]] || continue
+        if [[ "$mode" != "600" && "$mode" != "400" ]]; then
+            warn "Private key permissions are $mode (expected 600): ${key##*/}"
+        fi
+    done
+}
+
+check_locale() {
+    local loc="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+    if [[ -z "$loc" ]]; then
+        warn "No locale configured"
+    elif [[ "$loc" == *UTF-8* || "$loc" == *utf8* ]]; then
+        ok "UTF-8 locale: $loc"
+    else
+        warn "Locale may not be UTF-8: $loc"
+    fi
+}
+
+check_inotify() {
+    local file=/proc/sys/fs/inotify/max_user_watches value
+    if [[ ! -r "$file" ]]; then
+        skip "inotify limits unavailable"
+        return 0
+    fi
+    value=$(cat "$file" 2>/dev/null || true)
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        skip "inotify limit not readable"
+        return 0
+    fi
+    if (( value < 8192 )); then
+        warn "inotify watch limit is low ($value); large projects may hit it"
+    else
+        ok "inotify watch limit: $value"
+    fi
+}
+
+check_npm_prefix() {
+    if ! command -v npm >/dev/null 2>&1; then
+        skip "npm not installed"
+        return 0
+    fi
+    local prefix
+    prefix=$(npm config get prefix 2>/dev/null || true)
+    if [[ -z "$prefix" ]]; then
+        skip "npm prefix not reported"
+    elif [[ "$prefix" == "$HOME/.npm-global" ]]; then
+        ok "npm global prefix is ~/.npm-global"
+    else
+        warn "npm global prefix is $prefix (Ratel uses ~/.npm-global)"
     fi
 }
 
 check_utilities() {
-    local -a expected=(info update install theme doctor uninstall)
+    local -a expected=(info update install doctor uninstall)
     local -a missing=()
     local name
     for name in "${expected[@]}"; do
@@ -155,6 +244,11 @@ check_runtime() {
         else
             warn "Docker installed but user is not in the docker group"
         fi
+        if [[ -S /var/run/docker.sock ]]; then
+            ok "Docker socket present"
+        else
+            skip "Docker socket not present (daemon may be stopped)"
+        fi
     fi
 
     if [[ -w "$HB_SHARE" ]]; then
@@ -183,8 +277,15 @@ if [[ "$JSON" != "1" ]]; then
     hb_kv "Install type" "${install_type} (${HONEY_BADGER_COMPONENTS:-unknown})"
 fi
 check_metadata
-check_theme
+check_toolchain
 check_utilities
+check_path
+check_shell_config
+check_editor_env
+check_ssh_permissions
+check_locale
+check_inotify
+check_npm_prefix
 check_runtime
 
 if [[ "$JSON" == "1" ]]; then

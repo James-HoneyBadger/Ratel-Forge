@@ -8,11 +8,11 @@ alias c := check
 default:
     @just --list
 
-# Structural, shellcheck, and theme checks
+# Structural, shellcheck, and desktop-layer checks
 lint:
     @for f in install.sh lib/*.sh uninstall.sh distros/*/install-*.sh assets/honey-badger-*; do bash -n "$f" || exit 1; done
     @if command -v shellcheck >/dev/null 2>&1; then shellcheck -x -s bash -e SC2034 install.sh lib/*.sh uninstall.sh distros/*/install-*.sh assets/honey-badger-*; else echo "shellcheck not installed, skipping"; fi
-    @python3 scripts/lint-theme.py
+    @scripts/check-no-desktop-layer.sh
 
 # Run the three verification suites
 test:
@@ -20,10 +20,9 @@ test:
     bash verify_advanced.sh
     bash test_final.sh
 
-# Regenerate the high-contrast theme and lint both
-theme:
-    python3 scripts/generate_theme_variants.py
-    python3 scripts/lint-theme.py
+# Fail if desktop-environment or login code reappears
+guard:
+    scripts/check-no-desktop-layer.sh
 
 # Everything CI runs
 check: lint test

@@ -17,6 +17,14 @@ bash test_final.sh          # execution-level smoke tests
 All three suites must pass. CI also runs `shellcheck` and dry-runs the installer
 inside seven distribution containers.
 
+Before changing behaviour, read:
+
+- [docs/TECHNICAL_REFERENCE.md](docs/TECHNICAL_REFERENCE.md) — module APIs, data
+  formats, invariants
+- [docs/INSTRUCTIONS.md](docs/INSTRUCTIONS.md) — procedures for adding a
+  distribution, package, option, phase, utility, or doctor check
+- [docs/USER_MANUAL.md](docs/USER_MANUAL.md) — the user-facing contract
+
 ## Repository layout
 
 | Path | Contents |
@@ -25,16 +33,16 @@ inside seven distribution containers.
 | `lib/common.sh` | Core runtime: config, sudo, progress, resume, JSON |
 | `lib/ui.sh` | Colours, glyphs, layout, logging, prompts, banner |
 | `lib/packages.sh` | Manifest loader |
-| `lib/theme.sh` | GTK themes, XFCE/LightDM, wallpaper |
+| `lib/editor.sh` | Nano configuration and editor defaults |
 | `lib/utilities.sh` | Utility generation and post-install report |
 | `distros/<family>/` | One provisioner per family |
 | `config/` | Runtime configuration, nano config |
 | `config/packages/` | Package manifests, one per family |
-| `theme/` | GTK3 base + generated high-contrast, GTK2 gtkrc, metathemes |
 | `assets/` | Standalone fallback utility scripts and logo |
 | `completions/` | Bash and Zsh completions |
-| `scripts/` | Theme generator and theme linter |
+| `scripts/` | Desktop-layer guard |
 | `schema/` | JSON schema for the install summary |
+| `docs/` | User manual, technical reference, and task instructions |
 
 ## Coding conventions
 
@@ -97,10 +105,10 @@ Rules:
        export HONEY_BADGER_DISTRO="<family>"
        local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
        case "$install_type" in
-           full)      hb_set_total_steps 14 ;;
-           developer) hb_set_total_steps 11 ;;
-           desktop)   hb_set_total_steps 10 ;;
-           minimal)   hb_set_total_steps 5  ;;
+           full)      hb_set_total_steps 11 ;;
+           developer) hb_set_total_steps 10 ;;
+           apps)      hb_set_total_steps 8  ;;
+           minimal)   hb_set_total_steps 4  ;;
        esac
        show_banner
        # … update, install packages by type, setup_nano, create_utility_scripts …
@@ -109,7 +117,7 @@ Rules:
    main "$@"
    ```
 2. Support all four install types (the tests enforce the literals `full`,
-   `developer`, `desktop`, `minimal`).
+   `developer`, `apps`, `minimal`).
 3. Pass the correct update/install/clean commands to `create_utility_scripts`.
 4. Add detection to `install.sh` in all three layers: `/etc/os-release` IDs,
    `ID_LIKE`, and package-manager or release-file fallbacks.
@@ -128,16 +136,18 @@ Rules:
 5. Add a smoke test in `test_final.sh` when the option has observable behaviour.
 6. Document it in `README.md` (CLI table) and `USER_GUIDE.md` when relevant.
 
-## Themes
+## Desktop scope
 
-- `theme/honey-badger-theme.css` targets GTK 3.20+ and imports Adwaita dark as
-  its baseline. Override palette tokens, not individual colours ad hoc.
-- Never use `* { background-color: … }`: it destroys every widget's own
-  rendering.
-- Use real GTK3 widget selectors (`button`, `headerbar`, `entry`, `menuitem`),
-  not GTK2/Web-style classes.
-- `theme/gtkrc-2.0` must mirror the palette without requiring a theme engine.
-- Keep contrast at or above WCAG AA for body text and accent-on-surface text.
+Ratel Forge provisions developer tooling only. Do not add code that installs or
+configures:
+
+- desktop environments or window managers
+- display managers, greeters, or session files
+- boot targets, runlevels, or auto-login
+- GTK/Qt themes, icon themes, fonts, or wallpapers
+
+`scripts/check-no-desktop-layer.sh` runs in `make lint` and CI and fails if any
+of those reappear.
 
 ## Changing packages
 
@@ -152,34 +162,10 @@ per line; entries may contain spaces. `verify_scripts.sh` checks that every
 family has a manifest with a `BASE_PACKAGES` section and that its provisioner
 loads it.
 
-## Working on the theme
-
-- Edit `theme/honey-badger-theme.css` only; the high-contrast variant is derived.
-- Regenerate and lint both variants:
-
-  ```bash
-  make theme          # runs the generator, then the linter
-  ```
-
-- The linter enforces balanced CSS, the Adwaita baseline import, required
-  palette tokens and widget selectors, the absence of universal background
-  rules, and WCAG contrast for text/UI pairs.
-- Add a new widget surface by styling a real GTK3 selector (for example
-  `popover.background`), never a web-style class.
-- `honey-badger-theme palette` prints the current palette with swatches.
-- For a visual check, render widgets under Xvfb:
-
-  ```bash
-  scripts/theme-screenshot.sh Ratel /tmp/ratel.png
-  ```
-
-  This needs `xvfb`, ImageMagick, and GTK3 examples; it is a local review tool,
-  not part of `make check`.
-
 ## Testing requirements for a pull request
 
 ```bash
-make lint    # bash -n, shellcheck (if installed), theme lint
+make lint    # bash -n, shellcheck (if installed), desktop-layer guard
 make test    # the three suites
 make check   # both, matching CI
 ```

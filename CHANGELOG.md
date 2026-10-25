@@ -5,6 +5,66 @@ All notable changes to Ratel (formerly Honey Badger OS) are documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-10-25
+
+**Ratel Forge is now a developer provisioning system, not a desktop installer.**
+
+### Removed
+- **The entire desktop-environment layer.** Ratel Forge no longer installs or
+  configures XFCE, Thunar, LightDM, a greeter, session files, boot targets,
+  GTK/icon themes, fonts, or wallpapers. Desktop and login configuration are
+  left entirely to the distribution.
+- `lib/theme.sh`, `theme/`, `assets/honey-badger-theme`,
+  `scripts/generate_theme_variants.py`, `scripts/lint-theme.py`, and
+  `scripts/theme-screenshot.sh`.
+- The `desktop` install type and the `desktop` component.
+- The `--high-contrast`, `--font-size`, `--skip-theme`, and `--no-theme` flags,
+  `HONEY_BADGER_HIGH_CONTRAST`, `HONEY_BADGER_THEME_VARIANT`,
+  `HONEY_BADGER_THEME_*`, `HONEY_BADGER_FONT`, `HONEY_BADGER_MONO_FONT`, and
+  `HONEY_BADGER_WALLPAPER_SIZE`.
+- `theme_variant` from the install summary schema.
+- XFCE, Thunar, LightDM, Mousepad, and Xarchiver entries from every package
+  manifest.
+
+### Changed
+- **Install types** are now `full`, `developer`, `apps`, and `minimal`
+  (`desktop` is replaced by `apps`).
+- **Components** are now `base`, `dev`, and `apps`.
+- `honey-badger-info` and `honey-badger-doctor` report toolchain and installation
+  data only; `doctor` checks toolchains instead of themes.
+- `lib/theme.sh` became `lib/editor.sh` and contains only nano setup.
+- The post-install summary no longer suggests rebooting into a desktop session.
+
+### Added
+- **`honey-badger-update --check`** lists available system, Flatpak, and Snap
+  updates without installing them. Each family records a check command in
+  `pm.conf` (e.g. `pacman -Qu`, `apt list --upgradable`).
+- **`honey-badger-install --file <list>`** installs packages from a plain-text
+  list, ignoring comments and blank lines and de-duplicating entries.
+- **`honey-badger-report`** collects a redacted environment report (install
+  metadata, system, tool versions, doctor diagnostics, log tail) for bug reports.
+  `--output` writes a mode-600 file; `--no-log` omits the log tail.
+- **`honey-badger-doctor` v2** additionally checks duplicate `PATH` entries,
+  shell-fragment installation, `EDITOR`, `~/.ssh` permissions, UTF-8 locale,
+  inotify watch limits, the npm global prefix, and the Docker socket.
+- **Shell and tool settings** for every profile: fragments in
+  `~/.config/ratel/shell/` sourced by one `~/.bashrc` line, `~/.inputrc` history
+  search, `~/.editorconfig`, and configuration for `bat`, `ripgrep`, and `tmux`.
+  `--skip-shell` opts out. No login, PAM, or `/etc/profile` files are touched.
+- **Git quality defaults** when the key is unset: `merge.conflictStyle=zdiff3`,
+  `rerere`, `rebase.autoStash`, `push.autoSetupRemote`, `fetch.prune`, a global
+  ignore file, an auto-detected `core.editor`, and `delta` as pager plus
+  `interactive.diffFilter` when it is installed.
+- **Modern CLI toolkit** in a new `CLI_TOOLS_PACKAGES` manifest section,
+  installed with the base component on every profile: `jq`, `ripgrep`, `fd`,
+  `bat`, `fzf`, `zoxide`, `direnv`, `git-delta`, `shellcheck`, `shfmt`,
+  `hyperfine`, `tokei`, `ncdu`, `btop`, `httpie`, and `yq` where available.
+  Debian/Ubuntu use the `fd-find` and `bat` package names (commands `fdfind`
+  and `batcat`).
+- `scripts/check-no-desktop-layer.sh`, a CI guard that fails the build if
+  desktop-environment, display-manager, greeter, session, boot-target, theme, or
+  wallpaper code reappears.
+
 ## [2.5.0] - 2026-10-25
 
 Post-install polish: the utilities now describe what was actually installed and
