@@ -6,8 +6,8 @@ Current results on Linux, Bash 5.3:
 |-------|--------|--------|
 | `verify_scripts.sh` | 153 | ✅ all passed |
 | `verify_advanced.sh` | 28 | ✅ all passed |
-| `test_final.sh` | 53 | ✅ all passed |
-| **Total** | **234** | **✅** |
+| `test_final.sh` | 59 | ✅ all passed |
+| **Total** | **240** | **✅** |
 
 CI additionally runs `shellcheck` on every script, lints both themes for
 structure and contrast, and dry-runs the installer in Arch, Debian, Fedora,
@@ -65,6 +65,11 @@ Actually sources and runs code:
 - **Checkpoint** — save, load, and clear.
 - **Banner** — `hb_show_banner` includes the distribution name.
 - **CLI** — `install.sh --help` mentions the component flags.
+- **Type selection** — the menu prints before the prompt, is not captured into
+  the summary, and the selected profile is applied.
+- **Profile disk** — `--check --type full` reports the 9 GB requirement.
+- **Manifest realism** — base groups stay lean and no manifest uses
+  `exfat-utils`.
 - **Colour** — `NO_COLOR=1` produces no ANSI escapes.
 - **CLI** — `--version`, `--list-types`, and invalid `--type` exit codes.
 - **Dry-run safety** — `setup_nano` writes nothing under `HOME` in dry-run.

@@ -9,7 +9,7 @@ system you already run. This guide covers day-to-day use; see the
 - A supported Linux installation (see below)
 - A regular user account with `sudo` (or `wheel`) privileges
 - Outbound network access
-- Free disk space: 1 GB for minimal, 3 GB for desktop/developer, 5 GB for full
+- Free disk space: 1 GB minimal, 2 GB developer, 3 GB desktop, 6 GB full
 
 Do **not** run the installer as root. It requests privileged access per step.
 
@@ -41,10 +41,10 @@ logged.
 
 | Type | Disk | Best for |
 |------|------|----------|
-| Full | 3–5 GB | A workstation with everything configured |
-| Developer | 2–3 GB | Languages, containers, editors, XFCE core |
-| Desktop | 2–3 GB | A themed XFCE desktop with productivity apps |
-| Minimal | 0.5–1 GB | Servers: CLI tools only |
+| Full | 6–9 GB | A workstation with everything configured |
+| Developer | 2–4 GB | Languages, containers, editors, XFCE (no office/media apps) |
+| Desktop | 3–5 GB | XFCE, networking/audio/fonts, browsers, office, media |
+| Minimal | 0.3–0.8 GB | Servers: CLI tools only |
 
 You can skip the menu with `--type`:
 

@@ -23,48 +23,47 @@ hb_type_label() {
 
 hb_type_size() {
     case "$1" in
-        full)      printf '3-5 GB' ;;
-        developer) printf '2-3 GB' ;;
-        desktop)   printf '2-3 GB' ;;
-        minimal)   printf '0.5-1 GB' ;;
+        full)      printf '6-9 GB' ;;
+        developer) printf '2-4 GB' ;;
+        desktop)   printf '3-5 GB' ;;
+        minimal)   printf '0.3-0.8 GB' ;;
     esac
 }
 
 hb_type_blurb() {
     case "$1" in
-        full)      printf 'Complete desktop, full development stack, applications' ;;
-        developer) printf 'Languages, containers, editors, XFCE core desktop' ;;
-        desktop)   printf 'XFCE desktop with productivity applications' ;;
-        minimal)   printf 'Command-line essentials, no desktop environment' ;;
+        full)      printf 'Everything: desktop, toolchain, office, media' ;;
+        developer) printf 'Toolchain, containers, editors, XFCE desktop' ;;
+        desktop)   printf 'XFCE, browsers, office, media, basic dev tools' ;;
+        minimal)   printf 'CLI tools only, no desktop or GUI apps' ;;
     esac
 }
 
 hb_type_bullets() {
     case "$1" in
         full)
-            printf '    • Complete XFCE desktop environment\n'
+            printf '    • Complete XFCE desktop with networking, audio, and fonts\n'
             printf '    • Full development stack (Python, Node.js, Go, Rust, Java, Ruby)\n'
+            printf '    • Containers, editors, and database clients\n'
             printf '    • Productivity suite (LibreOffice, GIMP, VLC, Firefox)\n'
             printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
-            printf '    • Enhanced nano configuration and system utilities\n'
             ;;
         developer)
-            printf '    • Programming languages, build tools, and containers\n'
-            printf '    • XFCE core desktop and code editors\n'
+            printf '    • Languages, build tools, containers, and editors\n'
+            printf '    • XFCE desktop with networking, audio, and fonts\n'
+            printf '    • No office suite or media applications\n'
             printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
-            printf '    • Enhanced nano configuration\n'
             ;;
         desktop)
-            printf '    • Complete XFCE desktop environment\n'
-            printf '    • Productivity applications (office, media, browsing)\n'
+            printf '    • Complete XFCE desktop with networking, audio, and fonts\n'
+            printf '    • Browsers, office, and media applications\n'
             printf '    • Basic development tools\n'
             printf '    • Ratel theme, wallpaper, and LightDM greeter\n'
             ;;
         minimal)
-            printf '    • Essential command-line tools and monitoring utilities\n'
-            printf '    • Enhanced nano configuration\n'
-            printf '    • Ratel Forge utility commands\n'
-            printf '    • No desktop environment\n'
+            printf '    • CLI tools, monitoring, nano, and Ratel Forge commands\n'
+            printf '    • No desktop, audio stack, fonts, or GUI applications\n'
+            printf '    • Suitable for servers, containers, and remote hosts\n'
             ;;
     esac
 }
@@ -73,7 +72,7 @@ print_install_types() {
     printf 'Install types\n\n'
     local number=1 type
     for type in full developer desktop minimal; do
-        printf '  %s  %-10s %-9s %s\n' \
+        printf '  %s  %-10s %-12s %s\n' \
             "$number" "$(hb_type_label "$type")" "$(hb_type_size "$type")" "$(hb_type_blurb "$type")"
         number=$((number + 1))
     done
@@ -167,7 +166,7 @@ show_version() {
         codename="$(sed -n 's/^HONEY_BADGER_CODENAME=.*:-*\([^}]*\)}.*$/\1/p' "$conf" | head -n1)"
     fi
 
-    version="${HONEY_BADGER_VERSION:-${version:-2.4.0}}"
+    version="${HONEY_BADGER_VERSION:-${version:-2.4.1}}"
     codename="${HONEY_BADGER_CODENAME:-${codename:-Fearless}}"
 
     printf 'Ratel Forge %s%s\n' "$version" "${codename:+ \"$codename\"}"
@@ -426,6 +425,7 @@ detect_distribution() {
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 _HB_AVAILABLE_GB=0
+_HB_REQUIRED_GB=0
 
 run_preflight_checks() {
     hb_section "Pre-flight checks"
@@ -442,13 +442,14 @@ run_preflight_checks() {
     local required_gb="${HONEY_BADGER_MIN_DISK_GB:-}"
     if [[ -z "$required_gb" ]]; then
         case "${HONEY_BADGER_INSTALL_TYPE:-}" in
-            full)      required_gb=5 ;;
-            developer) required_gb=3 ;;
-            desktop)   required_gb=3 ;;
+            full)      required_gb=9 ;;
+            developer) required_gb=4 ;;
+            desktop)   required_gb=5 ;;
             minimal)   required_gb=1 ;;
             *)         required_gb=1 ;;
         esac
     fi
+    _HB_REQUIRED_GB="$required_gb"
 
     local available_kb
     available_kb=$(df -Pk / | awk 'NR==2 {print $4}')
@@ -462,7 +463,7 @@ run_preflight_checks() {
             log_info "Free up space or choose a smaller install type."
             exit 1
         fi
-        log_success "Disk space OK (${_HB_AVAILABLE_GB} GB free, ${required_gb} GB required)"
+        log_success "Disk space OK (${_HB_AVAILABLE_GB} GB free; ${required_gb} GB required for ${HONEY_BADGER_INSTALL_TYPE:-the baseline})"
     fi
 
     if [[ ! -d "$HONEY_BADGER_ROOT/distros" ]]; then
@@ -479,27 +480,43 @@ run_preflight_checks() {
 
 # ── Install type selection ──────────────────────────────────────────────────
 show_installation_types() {
-    hb_section "Installation type"
-    printf '  %b%-2s %-10s %-9s %s%b\n' "$BOLD" "#" "Type" "Size" "Contents" "$NC"
-    local number=1 type note
-    for type in full developer desktop minimal; do
-        note=""
-        [[ "$type" == "full" ]] && note="  ${HB_MUTED}(recommended)${NC}"
-        printf '  %b%d%b  %-10s %-9s %s%s\n' \
-            "$HB_ACCENT" "$number" "$NC" "$(hb_type_label "$type")" \
-            "$(hb_type_size "$type")" "$(hb_type_blurb "$type")" "$note"
-        number=$((number + 1))
-    done
-    printf '\n'
+    hb_section "Choose an installation type"
+
+    printf '  %b1  Full%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size full)" "$NC"
+    printf '     Everything: XFCE desktop, full development toolchain, browsers,\n'
+    printf '     office and media apps, containers, theme, and utilities.\n'
+    printf '     %bBest for:%b a new workstation you want fully set up. %b(recommended)%b\n\n' \
+        "$HB_MUTED" "$NC" "$HB_OK" "$NC"
+
+    printf '  %b2  Developer%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size developer)" "$NC"
+    printf '     Languages, build tools, containers, editors, and an XFCE desktop.\n'
+    printf '     Skips office suites and media applications.\n'
+    printf '     %bBest for:%b coding machines and development VMs.\n\n' "$HB_MUTED" "$NC"
+
+    printf '  %b3  Desktop%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size desktop)" "$NC"
+    printf '     XFCE desktop, browsers, office and media apps, plus basic dev tools.\n'
+    printf '     %bBest for:%b everyday desktops where you do not compile much.\n\n' "$HB_MUTED" "$NC"
+
+    printf '  %b4  Minimal%b  %b· %s%b\n' "$HB_ACCENT" "$NC" "$HB_MUTED" "$(hb_type_size minimal)" "$NC"
+    printf '     CLI tools, monitoring, nano, and Ratel Forge commands. No desktop,\n'
+    printf '     audio stack, fonts, or GUI applications.\n'
+    printf '     %bBest for:%b servers, containers, and remote hosts.\n\n' "$HB_MUTED" "$NC"
+
+    printf '  %bDefault:%b 1 (Full). Type %b?%b to show this list again.\n\n' \
+        "$HB_MUTED" "$NC" "$HB_ACCENT" "$NC"
 }
 
 get_installation_type() {
+    HB_SELECTED_TYPE=""
     local type="${HONEY_BADGER_INSTALL_TYPE:-}"
 
     if [[ -n "$type" ]]; then
         type="${type,,}"
         case "$type" in
-            full|developer|desktop|minimal) printf '%s' "$type"; return 0 ;;
+            full|developer|desktop|minimal)
+                HB_SELECTED_TYPE="$type"
+                return 0
+                ;;
             *)
                 log_error "Invalid install type: $type" >&2
                 log_info "Valid types: full, developer, desktop, minimal" >&2
@@ -519,12 +536,13 @@ get_installation_type() {
     while true; do
         choice="$(hb_prompt "Select installation type [1-4]" "1")"
         case "$choice" in
-            1|full)      printf 'full';      return 0 ;;
-            2|developer) printf 'developer'; return 0 ;;
-            3|desktop)   printf 'desktop';   return 0 ;;
-            4|minimal)   printf 'minimal';   return 0 ;;
+            1|full)      HB_SELECTED_TYPE="full";      return 0 ;;
+            2|developer) HB_SELECTED_TYPE="developer"; return 0 ;;
+            3|desktop)   HB_SELECTED_TYPE="desktop";   return 0 ;;
+            4|minimal)   HB_SELECTED_TYPE="minimal";   return 0 ;;
+            \?|help)     show_installation_types ;;
             *)
-                log_error "Invalid choice: $choice (expected 1-4)" >&2
+                log_error "Invalid choice: $choice (expected 1-4, or ? for help)" >&2
                 ;;
         esac
     done
@@ -539,7 +557,7 @@ show_installation_summary() {
     hb_kv "Architecture" "$(uname -m)"
     hb_kv "Install type" "$(hb_type_label "$install_type")"
     hb_kv "User" "$(whoami) · $HOME"
-    hb_kv "Free disk" "${_HB_AVAILABLE_GB} GB"
+    hb_kv "Disk" "${_HB_AVAILABLE_GB} GB free · ${_HB_REQUIRED_GB:-?} GB required"
     [[ -n "${HONEY_BADGER_COMPONENTS:-}" ]] && hb_kv "Components" "$HONEY_BADGER_COMPONENTS"
     if [[ "${HONEY_BADGER_HIGH_CONTRAST:-0}" == "1" ]]; then
         hb_kv "Theme" "Ratel-HC (high contrast)"
@@ -666,13 +684,14 @@ main() {
         check_sudo
     fi
     check_architecture
-    run_preflight_checks
 
     if detect_distribution; then
         log_success "Detected ${HB_DISTRO_LABEL} (${HB_DISTRO_FAMILY} family)"
     fi
 
     if [[ "$CHECK_ONLY" == "1" ]]; then
+        # Check against the baseline profile unless one was requested.
+        run_preflight_checks
         hb_section "Result"
         if [[ -n "${HB_DISTRO_FAMILY:-}" ]]; then
             log_success "Environment is ready for Ratel Forge"
@@ -698,11 +717,14 @@ main() {
         exit 1
     fi
 
-    local install_type
-    if ! install_type="$(get_installation_type)"; then
+    if ! get_installation_type; then
         exit 2
     fi
+    local install_type="$HB_SELECTED_TYPE"
     export HONEY_BADGER_INSTALL_TYPE="$install_type"
+    log_success "Selected: $(hb_type_label "$install_type") ($(hb_type_size "$install_type"))"
+
+    run_preflight_checks
 
     show_installation_summary "$install_type"
     confirm_installation

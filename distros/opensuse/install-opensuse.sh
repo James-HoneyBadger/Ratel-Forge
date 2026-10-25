@@ -52,8 +52,10 @@ install_zypper_packages() {
     for package in "${packages_ref[@]}"; do
         if rpm -q "$package" >/dev/null 2>&1; then
             log_info "$package already installed"
-        else
+        elif zypper --non-interactive info "$package" >/dev/null 2>&1; then
             available_packages+=("$package")
+        else
+            log_warning "$package not available in repositories"
         fi
     done
     if [[ ${#available_packages[@]} -gt 0 ]]; then

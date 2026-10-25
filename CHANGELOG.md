@@ -5,6 +5,33 @@ All notable changes to Ratel (formerly Honey Badger OS) are documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-10-25
+
+### Fixed
+- **The installation-type menu never appeared at the prompt.** It was printed
+  inside a command substitution, so the text was captured into the return value
+  and leaked into the summary afterwards. Selection now sets
+  `HB_SELECTED_TYPE`, the menu prints normally, and `?` redisplays it.
+- **Disk requirements ignored the chosen profile.** The type is selected before
+  pre-flight now, so a Full install requires 9 GB rather than the baseline 1 GB.
+
+### Changed
+- **Realistic profile sizes**: Full 6-9 GB, Developer 2-4 GB, Desktop 3-5 GB,
+  Minimal 0.3-0.8 GB, with matching pre-flight thresholds.
+- **Honest component groups**: compilers, GUI networking, audio, fonts, and disk
+  tools moved out of `BASE_PACKAGES` into developer/desktop groups. Minimal now
+  installs a genuinely minimal CLI set, and Developer no longer pulls office or
+  media applications.
+- **Debian repositories**: use the distribution's `docker.io`/`docker-compose`
+  instead of Docker's repository, which conflicted with them and broke on
+  derivatives with non-Ubuntu codenames. VS Code is installed from its apt repo
+  only (the duplicate snap entry is gone), the NodeSource floor is Node 20, and
+  non-free `rar`/`unrar` were dropped.
+- **Package availability**: Fedora, openSUSE, and Void now filter packages the
+  repositories do not have instead of failing the whole batch.
+- **Tests** — 240 checks (was 234), adding type-selection, profile-disk, and
+  manifest-realism coverage.
+
 ## [2.4.0] - 2026-10-25
 
 Everything from the follow-up improvement list: structure, data, resume,

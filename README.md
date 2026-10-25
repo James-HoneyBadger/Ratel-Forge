@@ -95,10 +95,10 @@ defaults, tool installs) are skipped as well as privileged ones.
 
 | Type | Disk | Includes | Best for |
 |------|------|----------|----------|
-| **Full** | 3–5 GB | Complete XFCE desktop, full language/toolchain stack, productivity apps, theme | New workstations |
-| **Developer** | 2–3 GB | Languages, build tools, containers, editors, XFCE core | Development machines |
-| **Desktop** | 2–3 GB | XFCE desktop and productivity apps, basic dev tools | Everyday desktops |
-| **Minimal** | 0.5–1 GB | CLI essentials, monitoring, nano, Ratel utilities | Servers and containers |
+| **Full** | 6–9 GB | XFCE desktop, full toolchain, containers, browsers, office, media, theme | New workstations |
+| **Developer** | 2–4 GB | Languages, build tools, containers, editors, XFCE desktop (no office/media apps) | Development machines |
+| **Desktop** | 3–5 GB | XFCE desktop with networking/audio/fonts, browsers, office, media, basic dev tools | Everyday desktops |
+| **Minimal** | 0.3–0.8 GB | CLI tools, monitoring, nano, Ratel Forge commands — no desktop | Servers and containers |
 
 List them at any time:
 
@@ -194,7 +194,8 @@ CMake, Ninja, Meson, Make; Docker and Compose; PostgreSQL/MySQL clients, SQLite,
 Redis; Neovim and an enhanced nano; `gh` and `git-delta`.
 
 **Desktop** — XFCE4 with Whisker Menu and panel plugins, Thunar, LightDM, Rofi,
-dmenu, notification and power management.
+dmenu, notification and power management, NetworkManager applets, PulseAudio,
+fonts, and disk tools (`gparted`, `ntfs-3g`, `exfatprogs`, `dosfstools`).
 
 **Applications** — Firefox, Chromium, LibreOffice, GIMP, Inkscape, VLC,
 Audacity, OBS, FFmpeg, Thunderbird, Telegram.
@@ -212,24 +213,45 @@ The installer uses one design system from start to finish:
 ```
   ╭────────────────────────────────────────────────────────────╮
   │                                                            │
-  │  R A T E L                                                 │
-  │  Fearless Linux provisioning                               │
+  │ R A T E L   F O R G E                                      │
+  │ Fearless Linux provisioning                                │
   │                                                            │
   ╰────────────────────────────────────────────────────────────╯
-  🦡  v2.4.0 "Fearless" · Arch Linux edition · full
+  🦡  v2.4.1 "Fearless" · dry-run
 
-  ── Installation type ──────────────────────────────────────
+  ── Choose an installation type ─────────────────────────────
 
-  #   Type       Size      Contents
-  1   Full       3-5 GB    Complete desktop, full development stack, applications  (recommended)
-  2   Developer  2-3 GB    Languages, containers, editors, XFCE core desktop
-  3   Desktop    2-3 GB    XFCE desktop with productivity applications
-  4   Minimal    0.5-1 GB  Command-line essentials, no desktop environment
+  1  Full  · 6-9 GB
+     Everything: XFCE desktop, full development toolchain, browsers,
+     office and media apps, containers, theme, and utilities.
+     Best for: a new workstation you want fully set up. (recommended)
 
+  2  Developer  · 2-4 GB
+     Languages, build tools, containers, editors, and an XFCE desktop.
+     Skips office suites and media applications.
+     Best for: coding machines and development VMs.
+
+  3  Desktop  · 3-5 GB
+     XFCE desktop, browsers, office and media apps, plus basic dev tools.
+     Best for: everyday desktops where you do not compile much.
+
+  4  Minimal  · 0.3-0.8 GB
+     CLI tools, monitoring, nano, and Ratel Forge commands. No desktop,
+     audio stack, fonts, or GUI applications.
+     Best for: servers, containers, and remote hosts.
+
+  Default: 1 (Full). Type ? to show this list again.
+
+  ? Select installation type [1-4] [1]: 2
+  ✔ Selected: Developer (2-4 GB)
+
+  ── Pre-flight checks ──────────────────────────────────────
   • Checking network connectivity…
   ✔ Network reachable
-  ▲ git is not installed; it will be installed as part of the base packages
-  ❯ [2/9] Installing base packages...
+  ✔ Disk space OK (443 GB free; 4 GB required for developer)
+  ✔ Repository layout OK
+
+  ❯ [1/12] Updating system packages...
 ```
 
 - Severity glyphs (`✔`, `▲`, `✖`, `•`, `❯`) with automatic ASCII fallback
@@ -362,7 +384,7 @@ bash verify_advanced.sh   # security patterns, dry-run, colour handling
 bash test_final.sh        # sourcing, idempotency, JSON, progress, banner
 ```
 
-The suites cover 234 checks locally and run in CI across seven container images.
+The suites cover 240 checks locally and run in CI across seven container images.
 
 Developer shortcuts:
 

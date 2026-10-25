@@ -81,7 +81,7 @@ EOF
     # ── Install metadata (read by the utilities) ──
     cat > "$share_dir/install-info" << ENDINFO
 # Ratel Forge install metadata — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
-HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-2.4.0}"
+HONEY_BADGER_VERSION="${HONEY_BADGER_VERSION:-2.4.1}"
 HONEY_BADGER_CODENAME="${HONEY_BADGER_CODENAME:-Fearless}"
 HONEY_BADGER_INSTALL_TYPE="${HONEY_BADGER_INSTALL_TYPE:-full}"
 HONEY_BADGER_DISTRO="${HONEY_BADGER_DISTRO:-unknown}"
@@ -241,7 +241,7 @@ show_post_install() {
     [[ "${_HB_POST_INSTALL_SHOWN:-0}" == "1" ]] && return 0
     _HB_POST_INSTALL_SHOWN=1
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    local version="${HONEY_BADGER_VERSION:-2.4.0}"
+    local version="${HONEY_BADGER_VERSION:-2.4.1}"
     local codename="${HONEY_BADGER_CODENAME:-}"
 
     printf '\n'

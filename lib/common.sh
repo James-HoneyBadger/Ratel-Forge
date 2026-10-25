@@ -210,7 +210,9 @@ _hb_cleanup() {
     local exit_code=$?
     # Remove registered temp files
     for f in "${_HB_TEMP_FILES[@]:-}"; do
-        [[ -n "$f" ]] && rm -f "$f" 2>/dev/null || true
+        if [[ -n "$f" ]]; then
+            rm -f "$f" 2>/dev/null || true
+        fi
     done
     # Release lock
     hb_release_lock
@@ -579,6 +581,7 @@ _hb_json_escape() {
     printf '%s' "$value"
 }
 
+# shellcheck disable=SC2120  # callers and tests may pass an output path
 hb_json_write() {
     local output_file="${1:-/tmp/honeybadger-summary.json}"
     local end_time

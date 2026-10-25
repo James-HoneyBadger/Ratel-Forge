@@ -51,8 +51,10 @@ install_xbps_packages() {
     for package in "${packages_ref[@]}"; do
         if xbps-query "$package" >/dev/null 2>&1; then
             log_info "$package already installed"
-        else
+        elif xbps-query -R "$package" >/dev/null 2>&1; then
             available_packages+=("$package")
+        else
+            log_warning "$package not available in repositories"
         fi
     done
     if [[ ${#available_packages[@]} -gt 0 ]]; then

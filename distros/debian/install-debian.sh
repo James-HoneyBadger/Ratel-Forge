@@ -49,7 +49,7 @@ add_repositories() {
     fi
 
     # Node.js: download setup script to temp file first (no pipe to bash)
-    if ! command -v nodejs >/dev/null 2>&1 || [[ $(nodejs --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1) -lt 16 ]]; then
+    if ! command -v nodejs >/dev/null 2>&1 || [[ $(nodejs --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1) -lt 20 ]]; then
         log_info "Adding Node.js repository..."
         local node_setup
         node_setup="$(mktemp)"
@@ -75,36 +75,10 @@ add_repositories() {
         fi
     fi
 
-    # Docker repository - detect correct distro (not hardcoded to ubuntu)
-    log_info "Adding Docker repository..."
-    local distro_id
-    distro_id="$(lsb_release -is 2>/dev/null | tr '[:upper:]' '[:lower:]')"
-    # Map derivatives to their upstream for Docker repos
-    case "$distro_id" in
-        linuxmint|pop|elementary|zorin|kali) distro_id="ubuntu" ;;
-        "") distro_id="debian" ;;
-    esac
-    local docker_codename
-    docker_codename="$(lsb_release -cs 2>/dev/null)"
-    local docker_key_tmp
-    docker_key_tmp="$(mktemp)"
-    hb_register_temp "$docker_key_tmp"
-    if hb_download "https://download.docker.com/linux/${distro_id}/gpg" "$docker_key_tmp" \
-        "${HONEY_BADGER_DOCKER_GPG_SHA256:-}"; then
-        if [[ -s "$docker_key_tmp" ]]; then
-            hb_sudo gpg --batch --yes --dearmor \
-                -o /usr/share/keyrings/docker-archive-keyring.gpg \
-                <"$docker_key_tmp" 2>/dev/null || {
-                log_warning "Failed to dearmor the Docker GPG key"
-                hb_json_add_error "Docker GPG key import failed"
-            }
-        fi
-    else
-        log_warning "Failed to download Docker GPG key for ${distro_id}"
-        hb_json_add_error "Docker GPG key download failed"
-    fi
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/${distro_id} ${docker_codename} stable" | hb_sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
+    # Docker: install the distribution's packages (docker.io/docker-compose).
+    # Using Docker's own repository here previously conflicted with docker.io
+    # and broke on derivatives whose codename is not an Ubuntu codename
+    # (Mint, Elementary, Zorin, Kali).
     # GitHub CLI repository
     log_info "Adding GitHub CLI repository..."
     local gh_key_tmp
@@ -262,7 +236,7 @@ install_packages_by_type() {
         "developer")
             install_apt_packages DEVELOPER_PACKAGES "developer"
             install_apt_packages DESKTOP_PACKAGES "basic desktop"
-            local -a dev_snaps=("code --classic" "postman")
+            local -a dev_snaps=("postman")
             install_snap_packages dev_snaps "development Snap"
             setup_xfce
             ;;

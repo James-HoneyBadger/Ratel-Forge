@@ -629,6 +629,84 @@ test_phase_resume() {
     fi
 }
 
+
+# ── Test 26: installation type selection UX ───────────────────────────────
+test_install_type_selection() {
+    echo -e "\n=== INSTALL TYPE SELECTION ==="
+    log_test "Menu appears before the prompt and the choice is applied"
+    local tmp_dir output
+    tmp_dir=$(mktemp -d)
+    output=$(printf '2\nn\n' | HOME="$tmp_dir" timeout 90 \
+        bash "$SCRIPT_DIR/install.sh" --dry-run --no-color 2>&1 || true)
+    rm -rf "$tmp_dir"
+
+    if echo "$output" | grep -q "Selected: Developer"; then
+        log_pass "Selected type is reported and used"
+    else
+        log_fail "Selected type was not applied"
+    fi
+
+    if echo "$output" | awk '
+        /Choose an installation type/ { menu = NR }
+        /Select installation type/    { prompt = NR }
+        END { exit !(menu && prompt && menu < prompt) }'; then
+        log_pass "Menu is printed before the prompt"
+    else
+        log_fail "Menu did not appear before the prompt"
+    fi
+
+    if echo "$output" | grep -A3 "Install type" | grep -q "Choose an installation type"; then
+        log_fail "Menu leaked into the installation summary"
+    else
+        log_pass "Summary is free of captured menu text"
+    fi
+}
+
+# ── Test 27: profile-aware disk requirement ───────────────────────────────
+test_profile_disk_requirement() {
+    echo -e "\n=== PROFILE DISK REQUIREMENT ==="
+    log_test "Pre-flight uses the selected profile's disk requirement"
+    local tmp_dir output
+    tmp_dir=$(mktemp -d)
+    output=$(HOME="$tmp_dir" timeout 90 bash "$SCRIPT_DIR/install.sh" \
+        --check --type full --no-color 2>&1 || true)
+    rm -rf "$tmp_dir"
+    if echo "$output" | grep -q "9 GB required for full"; then
+        log_pass "Full requires 9 GB"
+    else
+        log_fail "Full did not report a 9 GB requirement"
+    fi
+}
+
+# ── Test 28: manifest realism ─────────────────────────────────────────────
+test_manifest_realism() {
+    echo -e "\n=== MANIFEST REALISM ==="
+    log_test "Base groups exclude GUI, audio, fonts, and disk tools"
+    local fam base bad=0
+    for fam in arch debian fedora gentoo opensuse slackware void; do
+        base=$(awk '/^\[BASE_PACKAGES\]$/{f=1;next}/^\[/{f=0}f' \
+            "$SCRIPT_DIR/config/packages/$fam.conf")
+        if echo "$base" | grep -qxE 'pulseaudio|gparted|pavucontrol'; then
+            bad=1
+        fi
+        if [[ $(echo "$base" | grep -c .) -gt 30 ]]; then
+            bad=1
+        fi
+    done
+    if [[ $bad -eq 0 ]]; then
+        log_pass "Base groups are lean and free of desktop-only packages"
+    else
+        log_fail "A base group still contains desktop-only packages"
+    fi
+
+    log_test "Deprecated exfat-utils is not used anywhere"
+    if grep -rqx "exfat-utils" "$SCRIPT_DIR/config/packages"; then
+        log_fail "exfat-utils is still referenced"
+    else
+        log_pass "Manifests use exfatprogs instead of exfat-utils"
+    fi
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────
 run_final_tests() {
     echo "🦡 Ratel - Final Smoke Tests"
@@ -659,6 +737,9 @@ run_final_tests() {
     test_theme_metadata
     test_package_manifest_loader
     test_phase_resume
+    test_install_type_selection
+    test_profile_disk_requirement
+    test_manifest_realism
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
     echo -e "\n======================================="
