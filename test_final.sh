@@ -636,7 +636,8 @@ test_install_type_selection() {
     log_test "Menu appears before the prompt and the choice is applied"
     local tmp_dir output
     tmp_dir=$(mktemp -d)
-    output=$(printf '2\nn\n' | HOME="$tmp_dir" timeout 90 \
+    # CI=true would force non-interactive mode, so clear it for this test.
+    output=$(printf '2\nn\n' | env -u CI HOME="$tmp_dir" timeout 90 \
         bash "$SCRIPT_DIR/install.sh" --dry-run --no-color 2>&1 || true)
     rm -rf "$tmp_dir"
 
