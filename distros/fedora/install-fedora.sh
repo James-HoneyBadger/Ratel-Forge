@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Fedora/RHEL Post-Install Script
+# Ratel Forge - Fedora/RHEL Post-Install Script
 # Supports: Fedora, RHEL, CentOS, AlmaLinux, Rocky Linux
 
 set -euo pipefail
@@ -10,57 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "fedora"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-declare -a BASE_PACKAGES=(
-    "curl" "wget" "git" "git-lfs" "unzip" "zip" "p7zip"
-    "htop" "neofetch" "tree" "tmux" "screen"
-    "NetworkManager" "NetworkManager-wifi" "wpa_supplicant"
-    "openssh-clients" "openssh-server" "rsync" "nmap"
-    "gparted" "ntfs-3g" "exfatprogs" "dosfstools"
-    "pulseaudio" "pulseaudio-utils" "pavucontrol" "alsa-utils"
-    "dejavu-sans-fonts" "liberation-fonts" "google-noto-fonts-common"
-    "google-noto-emoji-fonts"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python3" "python3-pip" "python3-virtualenv"
-    "nodejs" "npm"
-    "golang" "rust" "cargo"
-    "java-latest-openjdk" "java-latest-openjdk-devel"
-    "ruby" "rubygems"
-    "php" "php-cli"
-    "make" "cmake" "ninja-build" "meson"
-    "gcc" "gcc-c++" "clang" "gdb" "valgrind"
-    "docker" "docker-compose" "podman"
-    "postgresql" "mariadb" "sqlite" "redis"
-    "neovim" "gh" "git-delta"
-    "autoconf" "automake" "libtool" "pkgconf"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4-panel" "xfce4-session" "xfce4-settings" "xfce4-terminal"
-    "xfce4-appfinder" "xfce4-power-manager" "xfce4-screenshooter"
-    "xfce4-taskmanager" "xfce4-whiskermenu-plugin" "xfce4-clipman-plugin"
-    "xfce4-notifyd" "xfce4-pulseaudio-plugin"
-    "thunar" "thunar-volman" "thunar-archive-plugin"
-    "lightdm" "lightdm-gtk-greeter" "lightdm-gtk-greeter-settings"
-    "file-roller" "gvfs" "gvfs-smb" "gvfs-mtp"
-    "rofi" "dmenu" "blueman" "network-manager-applet"
-    "ImageMagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "firefox" "chromium"
-    "libreoffice" "hunspell" "hunspell-en-US"
-    "gimp" "inkscape" "vlc" "audacity"
-    "ImageMagick" "ffmpeg-free"
-    "thunderbird" "telegram-desktop"
-    "galculator" "mousepad" "xarchiver"
-    "gstreamer1-plugins-base" "gstreamer1-plugins-good" "gstreamer1-plugins-bad-free" "gstreamer1-plugins-ugly-free" "gstreamer1-plugin-libav"
-)
+# Data lives in config/packages/fedora.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/fedora.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Fedora/RHEL" "Fearless Fedora-based Distribution Setup"
+    hb_show_banner "Fedora/RHEL" "Fedora-based provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -86,13 +42,17 @@ update_system() {
     local pm
     pm="$(get_pm)"
     hb_sudo "$pm" update -y
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_dnf_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     local pm
     pm="$(get_pm)"
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
@@ -111,7 +71,7 @@ install_dnf_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo "$pm" install -y "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -168,6 +128,11 @@ install_packages_by_type() {
 
 # ── Development tools (Fedora-specific) ──────────────────────────────────────
 setup_dev_fedora() {
+    if ! hb_component_enabled dev; then
+        log_info "Skipping setup_dev_fedora (dev component disabled)"
+        return 0
+    fi
+
     hb_next_step "Installing Fedora development group..."
     local pm
     pm="$(get_pm)"
@@ -177,7 +142,7 @@ setup_dev_fedora() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Fedora Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Fedora Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
@@ -185,29 +150,36 @@ main() {
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
     local pm
     pm="$(get_pm)"
-    case "$install_type" in
-        full)    hb_set_total_steps 12 ;;
-        developer) hb_set_total_steps 10 ;;
-        desktop) hb_set_total_steps 9 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 15 ;;
+            developer) hb_set_total_steps 14 ;;
+            desktop)   hb_set_total_steps 11 ;;
+            minimal)   hb_set_total_steps 4 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_fedora_system
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo $pm update -y" \
         "sudo $pm install -y" \
         "sudo $pm autoremove -y && sudo $pm clean all"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_dev_fedora
+        hb_phase dev setup_dev_fedora
     fi
     show_post_install
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Advanced Honey Badger OS Script Verification
+# Advanced Ratel Forge Script Verification
 # Tests for runtime functionality, security, and potential issues
 
 set -euo pipefail
@@ -38,7 +38,7 @@ test_security() {
     # S1: eval injection
     log_test "No eval usage in scripts"
     local eval_found=false
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -nE '^\s*eval\s' "$script" 2>/dev/null; then
             log_fail "eval found in $(basename "$script")"
             eval_found=true
@@ -51,7 +51,7 @@ test_security() {
     # S2: curl|bash pattern
     log_test "No curl|bash (download-and-execute) patterns"
     local curl_bash_found=false
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -nE 'curl.*\|\s*(sudo\s+)?bash|wget.*\|\s*(sudo\s+)?bash' "$script" 2>/dev/null; then
             log_fail "curl|bash found in $(basename "$script")"
             curl_bash_found=true
@@ -64,7 +64,7 @@ test_security() {
     # S3: World-writable temp files
     log_test "No insecure temp file usage"
     local insecure_tmp=false
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         # Flag: writing to /tmp with predictable names without mktemp
         if grep -nE '>/tmp/[a-zA-Z]' "$script" 2>/dev/null | grep -v 'LOG_FILE\|honeybadger-' >/dev/null 2>&1; then
             log_warn "Predictable /tmp file in $(basename "$script")"
@@ -78,7 +78,7 @@ test_security() {
     # S4: chmod 777
     log_test "No chmod 777 usage"
     local chmod_777=false
-    for script in distros/*/install-*.sh lib/common.sh install.sh; do
+    for script in distros/*/install-*.sh lib/*.sh install.sh; do
         if grep -nE 'chmod\s+777' "$script" 2>/dev/null; then
             log_fail "chmod 777 in $(basename "$script")"
             chmod_777=true
@@ -91,7 +91,7 @@ test_security() {
     # S5: Unverified downloads
     log_test "Downloads use verification (checksums, gpg, or https)"
     local unverified=false
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -nE 'curl.*http://' "$script" 2>/dev/null | grep -v '#' >/dev/null 2>&1; then
             log_warn "HTTP (non-HTTPS) download in $(basename "$script")"
             unverified=true
@@ -104,7 +104,7 @@ test_security() {
     # S6: sudo rm -rf /
     log_test "No dangerous recursive delete on root"
     local danger_rm=false
-    for script in distros/*/install-*.sh lib/common.sh install.sh; do
+    for script in distros/*/install-*.sh lib/*.sh install.sh; do
         if grep -nE 'rm\s+(-rf|-fr)\s+/\s*$' "$script" 2>/dev/null; then
             log_fail "Dangerous rm -rf / in $(basename "$script")"
             danger_rm=true
@@ -149,7 +149,7 @@ test_sudo_usage() {
         "sudo[[:space:]].*chown[[:space:]].*-R[[:space:]].* /$"
     )
     local found_unsafe=false
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         for pattern in "${unsafe_patterns[@]}"; do
             if grep -Eq "$pattern" "$script" 2>/dev/null; then
                 log_fail "Unsafe sudo pattern in $(basename "$script")"
@@ -201,7 +201,7 @@ test_environment_handling() {
 
     log_test "Checking for default value handling"
     local scripts_with_defaults=0
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -q '\${.*:-.*}' "$script"; then
             scripts_with_defaults=$((scripts_with_defaults + 1))
         fi
@@ -219,7 +219,7 @@ test_error_robustness() {
 
     log_test "Checking for command existence verification"
     local scripts_checking_commands=0
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -q "command -v" "$script"; then
             scripts_checking_commands=$((scripts_checking_commands + 1))
         fi
@@ -232,7 +232,7 @@ test_error_robustness() {
 
     log_test "Checking for trap handlers"
     local scripts_with_trap=0
-    for script in distros/*/install-*.sh install.sh lib/common.sh; do
+    for script in distros/*/install-*.sh install.sh lib/*.sh; do
         if grep -q "trap " "$script"; then
             scripts_with_trap=$((scripts_with_trap + 1))
         fi
@@ -244,10 +244,10 @@ test_error_robustness() {
     fi
 
     log_test "Shared library has signal trap (INT/TERM)"
-    if grep -qE "trap.*INT|trap.*TERM" lib/common.sh; then
-        log_pass "lib/common.sh traps INT/TERM signals"
+    if grep -qE "trap.*INT|trap.*TERM" lib/*.sh; then
+        log_pass "shared library traps INT/TERM signals"
     else
-        log_fail "lib/common.sh missing INT/TERM signal traps"
+        log_fail "shared library missing INT/TERM signal traps"
     fi
 }
 
@@ -257,7 +257,7 @@ test_file_operations() {
 
     log_test "Checking for file existence verification"
     local scripts_checking_files=0
-    for script in distros/*/install-*.sh lib/common.sh; do
+    for script in distros/*/install-*.sh lib/*.sh; do
         if grep -q '\[\[.*-f.*\]\]\|\[\[.*-d.*\]\]' "$script"; then
             scripts_checking_files=$((scripts_checking_files + 1))
         fi
@@ -320,14 +320,14 @@ test_backup_and_temp_registration() {
     echo -e "\n=== BACKUP & TEMP FILE REGISTRATION ==="
 
     log_test "Shared library has hb_backup_file function"
-    if grep -qE "^hb_backup_file\(\)" lib/common.sh; then
+    if grep -qE "^hb_backup_file\(\)" lib/*.sh; then
         log_pass "hb_backup_file is defined"
     else
         log_fail "hb_backup_file is not defined"
     fi
 
     log_test "Shared library has hb_register_temp function"
-    if grep -qE "^hb_register_temp\(\)" lib/common.sh; then
+    if grep -qE "^hb_register_temp\(\)" lib/*.sh; then
         log_pass "hb_register_temp is defined"
     else
         log_fail "hb_register_temp is not defined"
@@ -359,10 +359,10 @@ test_color_verbosity() {
     echo -e "\n=== COLOR & VERBOSITY CONTROL ==="
 
     log_test "Shared library supports NO_COLOR"
-    if grep -q "NO_COLOR" lib/common.sh; then
-        log_pass "lib/common.sh supports NO_COLOR standard"
+    if grep -q "NO_COLOR" lib/*.sh; then
+        log_pass "shared library supports NO_COLOR standard"
     else
-        log_fail "lib/common.sh missing NO_COLOR support"
+        log_fail "shared library missing NO_COLOR support"
     fi
 
     log_test "install.sh supports --no-color flag"
@@ -389,7 +389,7 @@ test_color_verbosity() {
 
 # Main test runner
 run_advanced_tests() {
-    echo "🦡 Advanced Honey Badger OS Script Verification"
+    echo "🦡 Advanced Ratel Forge Script Verification"
     echo "==============================================="
 
     test_security

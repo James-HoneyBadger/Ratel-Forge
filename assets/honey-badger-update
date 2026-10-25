@@ -1,57 +1,60 @@
 #!/bin/bash
-# Honey Badger OS - System Update Script
-# This is a fallback version; the live version is generated at install time in ~/.local/bin/
-
+# Ratel Forge — System Update (fallback copy; install.sh generates a distro-aware one)
 set -euo pipefail
 
-NC='\033[0m'; BOLD='\033[1m'; YELLOW='\033[0;33m'; GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'
+if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    ACCENT='' OK='' ERR='' MUTED='' BOLD='' NC=''
+else
+    ACCENT='\033[38;5;214m'; OK='\033[38;5;113m'; ERR='\033[38;5;203m'
+    MUTED='\033[38;5;245m'; BOLD='\033[1m'; NC='\033[0m'
+fi
 
-if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
-    echo -e "${YELLOW}${BOLD}🦡 Honey Badger OS - System Update${NC}"
-    echo ""
-    echo "Usage: honey-badger-update"
-    echo ""
-    echo "Updates all system packages, Flatpak, and Snap packages."
-    echo "Auto-detects the appropriate package manager."
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    printf 'Usage: honey-badger-update\n\n'
+    printf 'Updates system packages (and Flatpak/Snap when present),\n'
+    printf 'then cleans the package cache.\n'
     exit 0
 fi
 
-echo -e "${YELLOW}${BOLD}🦡 Honey Badger OS - System Update${NC}\n"
+printf '\n  %s%sRATEL FORGE%s  %s·%s  %sSystem update%s\n\n' \
+    "$ACCENT" "$BOLD" "$NC" "$MUTED" "$NC" "$BOLD" "$NC"
 
-# Detect package manager and update
+run() { printf '  %s•%s %s\n' "$ACCENT" "$NC" "$1"; }
+
 if command -v pacman >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via pacman...${NC}"
+    run "Updating with pacman"
     sudo pacman -Syu --noconfirm
 elif command -v apt-get >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via apt...${NC}"
+    run "Updating with apt"
     sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y
 elif command -v dnf >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via dnf...${NC}"
+    run "Updating with dnf"
     sudo dnf update -y && sudo dnf autoremove -y
-elif command -v yum >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via yum...${NC}"
-    sudo yum update -y
+elif command -v zypper >/dev/null 2>&1; then
+    run "Updating with zypper"
+    sudo zypper --non-interactive update
 elif command -v xbps-install >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via xbps...${NC}"
+    run "Updating with xbps"
     sudo xbps-install -Syu
 elif command -v slackpkg >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating via slackpkg...${NC}"
+    run "Updating with slackpkg"
     sudo slackpkg update && sudo slackpkg upgrade-all
+elif command -v emerge >/dev/null 2>&1; then
+    run "Updating with emerge"
+    sudo emerge --sync && sudo emerge -uDN @world
 else
-    echo -e "${RED}No supported package manager found${NC}"
+    printf '  %s✖%s No supported package manager found\n' "$ERR" "$NC" >&2
     exit 1
 fi
 
-# Update flatpak if available
 if command -v flatpak >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating Flatpak packages...${NC}"
-    flatpak update -y 2>/dev/null || true
+    run "Updating Flatpak packages"
+    sudo flatpak update -y || true
 fi
 
-# Update snap if available
 if command -v snap >/dev/null 2>&1; then
-    echo -e "${CYAN}Updating Snap packages...${NC}"
-    sudo snap refresh 2>/dev/null || true
+    run "Refreshing Snap packages"
+    sudo snap refresh || true
 fi
 
-echo -e "\n${GREEN}${BOLD}System update complete! 🦡${NC}"
+printf '\n  %s✔%s System update complete\n\n' "$OK" "$NC"

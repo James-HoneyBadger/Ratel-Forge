@@ -1,173 +1,210 @@
-# Contributing to Honey Badger OS
+# Contributing to Ratel Forge
 
-Thank you for your interest in contributing! This guide covers the coding
-conventions, testing workflow, and how to add support for a new distribution.
+Thanks for helping. This guide covers conventions, the test workflow, and the two
+most common changes: adding a distribution and adding a CLI option.
 
-## Quick Start
+## Quick start
 
 ```bash
-git clone https://github.com/James-HoneyBadger/Honey_Badger_OS.git
-cd Honey_Badger_OS
-bash verify_scripts.sh      # Static checks (should be 115+ passed)
-bash verify_advanced.sh     # Security checks (should be 28+ passed)
-bash test_final.sh          # Smoke tests (should be 33+ passed)
+git clone https://github.com/James-HoneyBadger/Ratel-Forge.git
+cd Ratel-Forge
+
+bash verify_scripts.sh      # static checks
+bash verify_advanced.sh     # security & robustness
+bash test_final.sh          # execution-level smoke tests
 ```
 
-## Project Structure
+All three suites must pass. CI also runs `shellcheck` and dry-runs the installer
+inside seven distribution containers.
 
-```
-install.sh              # Entry point — detects distro, runs installer
-lib/common.sh           # Shared library — DO NOT duplicate code; add here
-config/
-  honey-badger-os.conf  # User-facing configuration (sourced by common.sh)
-  nanorc                # Enhanced nano configuration
-distros/
-  <distro>/
-    install-<distro>.sh # Distribution-specific installer
-assets/                 # Fallback utility scripts (overwritten at install time)
-theme/                  # GTK2 and GTK3 theme files
-completions/            # Shell completion scripts
-.github/workflows/      # CI pipeline
-```
+## Repository layout
 
-## Coding Conventions
+| Path | Contents |
+|------|----------|
+| `install.sh` | Universal entry point and install-type catalogue |
+| `lib/common.sh` | Core runtime: config, sudo, progress, resume, JSON |
+| `lib/ui.sh` | Colours, glyphs, layout, logging, prompts, banner |
+| `lib/packages.sh` | Manifest loader |
+| `lib/theme.sh` | GTK themes, XFCE/LightDM, wallpaper |
+| `lib/utilities.sh` | Utility generation and post-install report |
+| `distros/<family>/` | One provisioner per family |
+| `config/` | Runtime configuration, nano config |
+| `config/packages/` | Package manifests, one per family |
+| `theme/` | GTK3 base + generated high-contrast, GTK2 gtkrc, metathemes |
+| `assets/` | Standalone fallback utility scripts and logo |
+| `completions/` | Bash and Zsh completions |
+| `scripts/` | Theme generator and theme linter |
+| `schema/` | JSON schema for the install summary |
 
-### Shell Style
+## Coding conventions
 
-- **Shebang**: `#!/bin/bash` (not `/bin/sh`)
-- **Strict mode**: Every script starts with `set -euo pipefail`
-- **Source shared lib**: `source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"`
-- **Indentation**: 4 spaces (no tabs)
-- **Line length**: 100 characters soft limit
-- **Variables**: Use `local` inside functions. Always quote: `"$var"`, not `$var`
-- **Parameter expansion**: Use `"${var:-default}"` for optional variables
-- **Commands**: Check existence with `command -v`, not `which`
-- **Temp files**: Use `mktemp` and register with `hb_register_temp "$file"`
-- **Config changes**: Call `hb_backup_file "$path"` before overwriting user configs
+- Every executable script starts with `#!/bin/bash` and `set -euo pipefail`.
+- Quote everything: `"$var"`, `"${arr[@]}"`. Never rely on word splitting.
+- **No `eval`.** Never pipe a download into a shell; save it to a temp file,
+  register it with `hb_register_temp`, then execute it.
+- All privileged work goes through `hb_sudo`, never raw `sudo` in new code.
+- Prefer arrays for package lists and pass them with `"${packages[@]}"`.
+- Check for commands with `command -v` before calling them.
+- Keep functions small and side-effect free where possible; return values on
+  stdout and diagnostics on stderr.
 
-### Naming
+### UI conventions
 
-- Functions: `lowercase_with_underscores`
-- Private/internal functions: `_hb_prefixed` (underscore prefix)
-- Environment variables: `HONEY_BADGER_UPPER_CASE`
-- Local variables: `lowercase`
+User-facing output must use the shared vocabulary in `lib/common.sh`:
 
-### Logging
+| Helper | Use for |
+|--------|---------|
+| `hb_section "Title"` | A new phase of work |
+| `hb_rule` | A closing or separating line |
+| `hb_kv key value` | Aligned key/value rows |
+| `hb_next_step "…"` | A numbered step (prints `[n/total]`) |
+| `log_info` / `log_success` / `log_warning` / `log_error` | Status lines |
+| `log_debug` | Verbose-only detail |
+| `hb_prompt "Label" [default]` | Reading a value (echoes only the answer) |
+| `hb_confirm "Question" [yes\|no]` | Yes/no decisions |
+| `hb_dry_run` | Early-return guard for mutating functions |
 
-Use the shared logging functions — never raw `echo` for user output:
-```bash
-log_info "Informational message"       # Suppressed in --quiet mode
-log_success "Completed something"      # Suppressed in --quiet mode
-log_warning "Non-fatal issue"          # Always shown
-log_error "Fatal problem"             # Always shown
-log_debug "Verbose detail"            # Only shown with --verbose
-log_step "Major phase label"          # Suppressed in --quiet mode
-```
+Rules:
 
-### Sudo
+- Do not hand-roll `echo -e` banners or bespoke colour codes in provisioners.
+- Keep glyphs Unicode but never assume them: the library falls back to ASCII.
+- Add a `hb_dry_run` guard to every function that writes user files or runs
+  package managers, so `--dry-run` stays truthful.
+- Prompts must default safely (typically `no`) and respect non-interactive mode.
 
-Always use `hb_sudo` instead of `sudo` directly. This enables `--dry-run` mode:
-```bash
-hb_sudo pacman -S --noconfirm vim     # Respects dry-run
-hb_sudo systemctl enable lightdm     # Respects dry-run
-```
+### Style
 
-## Adding a New Distribution
+- 4-space indentation, no tabs.
+- Section banners use `# ── Title ─────…`.
+- Comment *why*, not *what*; keep comments off obvious lines.
+- Keep line length reasonable (~100 columns).
 
-1. **Create the directory and script**:
-   ```bash
-   mkdir -p distros/newdistro
-   touch distros/newdistro/install-newdistro.sh
-   chmod +x distros/newdistro/install-newdistro.sh
-   ```
+## Adding a distribution
 
-2. **Use this template** as a starting point:
+1. Create `distros/<family>/install-<family>.sh`:
    ```bash
    #!/bin/bash
-   # Honey Badger OS - NewDistro Post-Install Script
-   # Supports: NewDistro Linux
-
+   # Ratel Forge — <Family> provisioner
    set -euo pipefail
-
    source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
+   hb_init_distro_log "<family>"
 
-   LOG_FILE="/tmp/honeybadger-newdistro-install.log"
-
-   # Package lists
-   declare -a BASE_PACKAGES=(...)
-   declare -a DEVELOPER_PACKAGES=(...)
-   declare -a DESKTOP_PACKAGES=(...)
-   declare -a APPLICATIONS_PACKAGES=(...)
-
-   check_newdistro_system() { ... }
-   update_system() { ... }
-   install_packages() { ... }
-
-   install_full() { ... }
-   install_developer() { ... }
-   install_desktop() { ... }
-   install_minimal() { ... }
+   show_banner() { hb_show_banner "<Label>" "<Family>-based provisioning"; }
 
    main() {
-       local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-       export HONEY_BADGER_DISTRO="newdistro"
        hb_json_init
-       hb_set_total_steps 8
-
-       check_newdistro_system
-       update_system
-
+       hb_rollback_init
+       export HONEY_BADGER_DISTRO="<family>"
+       local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
        case "$install_type" in
-           full)      install_full ;;
-           developer) install_developer ;;
-           desktop)   install_desktop ;;
-           minimal)   install_minimal ;;
+           full)      hb_set_total_steps 14 ;;
+           developer) hb_set_total_steps 11 ;;
+           desktop)   hb_set_total_steps 10 ;;
+           minimal)   hb_set_total_steps 5  ;;
        esac
-
-       create_utility_scripts "update-cmd" "install-cmd" "clean-cmd"
+       show_banner
+       # … update, install packages by type, setup_nano, create_utility_scripts …
        show_post_install
    }
-
    main "$@"
    ```
+2. Support all four install types (the tests enforce the literals `full`,
+   `developer`, `desktop`, `minimal`).
+3. Pass the correct update/install/clean commands to `create_utility_scripts`.
+4. Add detection to `install.sh` in all three layers: `/etc/os-release` IDs,
+   `ID_LIKE`, and package-manager or release-file fallbacks.
+5. Add the family to `.github/workflows/ci.yml` if a usable container exists.
+6. Update the distribution tables in `README.md`, `USER_GUIDE.md`, and
+   `PROJECT_OVERVIEW.md`.
 
-3. **Register in `install.sh`**: Add your distro to `detect_distribution()`:
-   ```bash
-   newdistro)
-       echo "newdistro"
-       return 0
-       ;;
-   ```
+## Adding a CLI option
 
-4. **Add to CI**: Update `.github/workflows/ci.yml` matrix with a container image.
+1. Parse it in the `while` loop **before** `lib/common.sh` is sourced, so
+   `--help` and friends remain side-effect free.
+2. Prefer exporting an `HONEY_BADGER_*` environment variable over adding a new
+   global.
+3. Add the flag to `show_help`.
+4. Add it to `completions/honey-badger.bash` and `completions/honey-badger.zsh`.
+5. Add a smoke test in `test_final.sh` when the option has observable behaviour.
+6. Document it in `README.md` (CLI table) and `USER_GUIDE.md` when relevant.
 
-5. **Run the test suite**:
-   ```bash
-   bash verify_scripts.sh && bash verify_advanced.sh && bash test_final.sh
-   ```
+## Themes
 
-## Commit Messages
+- `theme/honey-badger-theme.css` targets GTK 3.20+ and imports Adwaita dark as
+  its baseline. Override palette tokens, not individual colours ad hoc.
+- Never use `* { background-color: … }`: it destroys every widget's own
+  rendering.
+- Use real GTK3 widget selectors (`button`, `headerbar`, `entry`, `menuitem`),
+  not GTK2/Web-style classes.
+- `theme/gtkrc-2.0` must mirror the palette without requiring a theme engine.
+- Keep contrast at or above WCAG AA for body text and accent-on-surface text.
 
-Use conventional commit format:
+## Changing packages
+
+Do not edit arrays in a provisioner. Edit the manifest instead:
+
 ```
-feat: add OpenSUSE distribution support
-fix: slackware mirror auto-config in non-interactive mode
-docs: update USER_GUIDE with new CLI flags
-test: add edge case tests for symlinked bashrc
-chore: bump version to 2.1.0
+config/packages/<family>.conf
 ```
 
-## Pull Request Checklist
+Sections such as `[BASE_PACKAGES]` become arrays of the same name. Add one entry
+per line; entries may contain spaces. `verify_scripts.sh` checks that every
+family has a manifest with a `BASE_PACKAGES` section and that its provisioner
+loads it.
 
-- [ ] `bash -n` passes on all new/changed scripts
-- [ ] All three test suites pass (`verify_scripts.sh`, `verify_advanced.sh`, `test_final.sh`)
-- [ ] New functions use `local` for variables
-- [ ] Temp files use `mktemp` + `hb_register_temp`
-- [ ] Config overwrites use `hb_backup_file`
-- [ ] `hb_sudo` used instead of bare `sudo`
-- [ ] No `eval`, `curl | bash`, `chmod 777`, or hardcoded `/tmp` paths without `mktemp`
-- [ ] CHANGELOG.md updated
+## Working on the theme
 
-## License
+- Edit `theme/honey-badger-theme.css` only; the high-contrast variant is derived.
+- Regenerate and lint both variants:
 
-By contributing, you agree that your contributions will be licensed under the project's MIT License.
+  ```bash
+  make theme          # runs the generator, then the linter
+  ```
+
+- The linter enforces balanced CSS, the Adwaita baseline import, required
+  palette tokens and widget selectors, the absence of universal background
+  rules, and WCAG contrast for text/UI pairs.
+- Add a new widget surface by styling a real GTK3 selector (for example
+  `popover.background`), never a web-style class.
+- `honey-badger-theme palette` prints the current palette with swatches.
+- For a visual check, render widgets under Xvfb:
+
+  ```bash
+  scripts/theme-screenshot.sh Ratel /tmp/ratel.png
+  ```
+
+  This needs `xvfb`, ImageMagick, and GTK3 examples; it is a local review tool,
+  not part of `make check`.
+
+## Testing requirements for a pull request
+
+```bash
+make lint    # bash -n, shellcheck (if installed), theme lint
+make test    # the three suites
+make check   # both, matching CI
+```
+
+Individual suites remain runnable directly:
+
+```bash
+bash verify_scripts.sh
+bash verify_advanced.sh
+bash test_final.sh
+```
+
+## Commit and pull request
+
+- One logical change per commit; use the imperative mood
+  (`Add openSUSE detection`, not `Added…`).
+- Reference the issue in the PR description.
+- Describe user-visible behaviour changes and how you verified them.
+
+## Release checklist
+
+1. Bump `HONEY_BADGER_VERSION` and `HONEY_BADGER_BUILD_DATE` in
+   `config/honey-badger-os.conf` (they use `${VAR:-default}`, so environment
+   overrides keep working).
+2. Update `show_version`'s fallback (`install.sh`) if the default changed.
+3. Add a `CHANGELOG.md` entry under a new version heading.
+4. Run all three suites and the container dry-runs.
+5. Tag the release.

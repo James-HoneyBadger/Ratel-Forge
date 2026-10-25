@@ -1,64 +1,107 @@
-# Honey Badger OS - Project Overview
+# Ratel Forge — Project Overview
 
-## What It Is
+## What it is
 
-Honey Badger OS is a **post-install automation framework** for Linux. It is not a Linux distribution — it runs on top of your existing installation to configure a complete development and desktop environment.
+Ratel Forge is a **post-install provisioning framework** for Linux. It is not a
+distribution: it runs on top of an existing installation and applies a
+consistent development and desktop environment across seven distribution
+families.
+
+It was previously called *Honey Badger OS*. The project kept the animal — Ratel
+is the honey badger's proper common name — but dropped the `OS` suffix, because
+what ships here is a framework, not an operating system.
 
 ## Goals
 
-1. **Multi-distro support** — A single entry point (`install.sh`) detects your distribution and runs the appropriate installer
-2. **Consistent experience** — Same tools, theme, and workflow regardless of whether you run Arch, Debian, Fedora, Gentoo, openSUSE, Void, or Slackware
-3. **Four installation profiles** — Full, Developer, Desktop, and Minimal to match different use cases
-4. **Security-first** — No `eval`, no `curl|bash`, safe defaults, dry-run support
-5. **Maintainability** — Shared library (`lib/common.sh`) eliminates code duplication across all distro scripts
+1. **One entry point** — `install.sh` detects the distribution and dispatches to
+   the right provisioner.
+2. **Consistent experience** — the same tools, terminal vocabulary, theme, and
+   utilities regardless of family.
+3. **Honest profiles** — Full, Developer, Desktop, and Minimal describe exactly
+   what they install, including disk footprint.
+4. **Security-first** — no `eval`, no `curl | bash`, whitelisted config keys,
+   array-based package arguments, and a truthful dry-run.
+5. **Maintainability** — a shared library owns UI, logging, theme, and utility
+   generation so seven provisioners stay small.
 
 ## Architecture
 
 ```
-install.sh  ──→  detect distro  ──→  distros/{distro}/install-{distro}.sh
-                                          │
-                                          ▼
-                                     lib/common.sh  (shared functions)
-                                          │
-                                     config/honey-badger-os.conf
+install.sh ──→ pre-flight ──→ detect_distribution ──→ distros/{family}/install-{family}.sh
+                                                          │
+                                                          ▼
+                                                   lib/common.sh
+                                     ┌─────────────┬──────────────┬─────────────┐
+                                     ▼             ▼              ▼             ▼
+                                  ui.sh      packages.sh      theme.sh    utilities.sh
 ```
 
-### Key Components
-
-| Component | Purpose |
-|-----------|---------|
-| `install.sh` | Universal entry point — distro detection, install type selection, pre-flight checks |
-| `lib/common.sh` | Shared library — logging, `hb_sudo`, theme setup, utilities, JSON output |
-| `distros/*/install-*.sh` | Distro-specific installers — package lists, package manager commands, service management |
-| `config/honey-badger-os.conf` | Project configuration — version, colors, feature flags |
-| `config/nanorc` | Enhanced nano editor configuration with syntax highlighting |
-| `theme/` | GTK2 and GTK3 theme files (goldenrod honey badger palette) |
-| `assets/` | Standalone utility scripts (info, update, install) |
-
-### Design Decisions
-
-- **`hb_sudo()` wrapper**: All privileged commands go through `hb_sudo()` which respects `HONEY_BADGER_DRY_RUN`. This makes it safe to preview installations without root access.
-- **No `eval`**: The wallpaper/asset installation previously used `eval` to execute dynamically-built strings. Now uses direct `convert` calls.
-- **Distro-aware Docker repos**: The Debian installer detects the actual distribution ID (mapping derivatives like Linux Mint → Ubuntu) rather than hardcoding `ubuntu`.
-- **Progress tracking**: `hb_set_total_steps(N)` + `hb_next_step("msg")` provides `[3/12] msg` progress indicators.
-- **JSON summary**: Every installation writes a machine-readable summary to `/tmp/honeybadger-summary.json`.
-
-## Testing Strategy
-
-| Test Suite | What It Checks |
+| Component | Responsibility |
 |-----------|----------------|
-| `verify_scripts.sh` | Syntax (`bash -n`), file structure, required functions, package managers, parity |
-| `verify_advanced.sh` | Security scanning (eval, curl\|bash, chmod 777), sudo patterns, service management |
-| `test_final.sh` | Execution-level smoke tests — sourcing, dry-run, idempotency, JSON output, progress tracking |
+| `install.sh` | Flag parsing (side-effect free for `--help`/`--version`/`--list-types`), environment checks, install-type catalogue, detection, summary, confirmation, dispatch |
+| `lib/common.sh` | Entry point: configuration, logging setup, `hb_sudo`, progress, checkpoints/phases, JSON summary, network and service helpers |
+| `lib/ui.sh` | Colours, glyphs, layout, logging, prompts, banner |
+| `lib/packages.sh` | Manifest loader (sections become arrays, no `eval`) |
+| `lib/theme.sh` | GTK themes, XFCE/LightDM appearance, wallpaper |
+| `lib/utilities.sh` | Utility command generation and post-install report |
+| `config/packages/*.conf` | Package manifests per family |
+| `distros/*/install-*.sh` | Package lists, package-manager commands, repository setup, service management |
+| `config/honey-badger-os.conf` | Release identity, palette, typography, feature flags |
+| `theme/` | GTK3 stylesheet, GTK2 gtkrc, metatheme descriptor |
+| `assets/` | Standalone fallback copies of the utility commands |
+| `completions/` | Bash and Zsh completion definitions |
 
-## Supported Platforms
+### Design decisions
 
-| Family | Package Manager | Init System | Derivatives |
-|--------|----------------|-------------|-------------|
-| Arch | pacman / yay | systemd | Manjaro, EndeavourOS, ArcoLinux, Artix |
-| Debian | apt | systemd | Ubuntu, Mint, Pop!_OS, Elementary, Zorin, Kali |
+- **Detection cannot corrupt its own result.** `detect_distribution` sets
+  `HB_DISTRO_FAMILY` and `HB_DISTRO_LABEL` and writes nothing to stdout. The
+  previous echo-plus-logging approach meant command substitution captured log
+  lines and produced a path containing a newline.
+- **One UI vocabulary.** Provisioners call `hb_section`, `hb_rule`, `hb_kv`,
+  `hb_next_step`, and the `log_*` family instead of printing ad-hoc banners.
+- **Glyphs degrade, never break.** UTF-8 is detected from the locale; `--ascii`
+  or `TERM=dumb` falls back to ASCII. Colour degrades from 256 to ANSI-8 to none.
+- **Dry-run means dry.** Mutating user-level functions return early under
+  `hb_dry_run`; `hb_sudo` prints commands instead of running them.
+- **Theme is a first-class artifact.** It is installed for the user *and*
+  system-wide, registered as a metatheme, applied through GTK and XFCE settings,
+  and generated from the same palette as the wallpaper.
+- **Logs are structured.** Log files receive timestamped, ANSI-free lines. The
+  universal installer additionally tees raw subprocess output, with a flag that
+  prevents the shared library from writing duplicates.
+- **Package data is separate from logic.** Manifests make package changes
+  reviewable and keep provisioning code small.
+- **Resume is explicit.** Completed phases are recorded; `--resume` skips them
+  and rejects state from a different distro/type.
+- **Themes are generated and linted.** The high-contrast variant is derived from
+  the base stylesheet; `scripts/lint-theme.py` enforces structure, required
+  selectors, and WCAG contrast in CI.
+
+## Supported platforms
+
+| Family | Package manager | Init | Derivatives |
+|--------|-----------------|------|-------------|
+| Arch | pacman | systemd | Manjaro, EndeavourOS, ArcoLinux, Artix |
+| Debian | apt | systemd | Ubuntu, Mint, Pop!\_OS, Elementary, Zorin, Kali |
 | Fedora | dnf / yum | systemd | RHEL, CentOS, AlmaLinux, Rocky |
 | Gentoo | emerge (Portage) | OpenRC / systemd | Funtoo |
 | openSUSE | zypper | systemd | Leap, Tumbleweed, SLES, GeckoLinux |
 | Void | xbps | runit | — |
-| Slackware | slackpkg / sbopkg | SysV init | Salix |
+| Slackware | slackpkg | SysV init | Salix |
+
+## Testing strategy
+
+| Suite | Scope |
+|-------|-------|
+| `verify_scripts.sh` | Syntax, structure, required functions, package-manager parity, install-type coverage |
+| `verify_advanced.sh` | Security patterns (no `eval`, no `curl|bash`, no `chmod 777`), sudo discipline, traps, env defaults, colour handling |
+| `test_final.sh` | Sourcing, double-source safety, dry-run, idempotency, JSON output, progress counters, banner, checkpoint, config validation |
+
+All three run locally and in CI, including dry-runs in seven container images.
+
+## Roadmap ideas
+
+- Publish a JSON schema for `honeybadger-summary.json`
+- Package-list manifests per family (data, not code) for easier review
+- Optional Wayland session profile
+- Screenshot gallery generated from a container in CI

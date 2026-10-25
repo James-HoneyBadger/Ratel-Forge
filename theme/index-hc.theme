@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=Ratel-HC
+Comment=Ratel Forge — high-contrast dark theme
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=Ratel-HC
+IconTheme=Ratel
+CursorTheme=Adwaita

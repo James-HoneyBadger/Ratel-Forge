@@ -1,9 +1,158 @@
 # Changelog
 
-All notable changes to Honey Badger OS will be documented in this file.
+All notable changes to Ratel (formerly Honey Badger OS) are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.4.0] - 2026-10-25
+
+Everything from the follow-up improvement list: structure, data, resume,
+component selection, new utilities, accessibility, integrity, and tooling.
+
+### Added
+- **Layered library** — `lib/common.sh` (~600 lines) now composes
+  `lib/ui.sh` (terminal UI), `lib/packages.sh` (manifest loader),
+  `lib/theme.sh` (desktop), and `lib/utilities.sh` (commands + report). Each has
+  its own double-source guard and shellcheck directives.
+- **Package manifests** — `config/packages/<family>.conf` holds every package
+  list as reviewable data. All 750 entries were migrated with a parsed
+  before/after comparison to prove parity.
+- **Phase-based resume** — `hb_phase <id> <command>` records completed phases;
+  `--resume` skips them and refuses state from a different distro or install
+  type. Fresh runs reset the state.
+- **Component selection** — `--components base,dev,desktop,apps` filters package
+  groups and the desktop/dev setup that depends on them.
+- **`honey-badger-theme`** — `status`, `apply [default|high-contrast]`, `list`,
+  and `palette` (renders swatches from generated palette metadata).
+- **`honey-badger-doctor`** — checks theme installation, icon descriptor, GTK and
+  XFCE settings, PATH, metadata, Git identity, Docker group, and package manager;
+  exits non-zero on hard failures.
+- **High-contrast theme** — generated `Ratel-HC` variant with pure-black
+  surfaces, 2 px borders, 3 px focus rings, and AAA contrast. Both variants are
+  installed so switching is live. Enable at install time with
+  `--high-contrast`.
+- **Font sizing** — `--font-size N` (8–24) sets UI and monospace fonts.
+- **Verified downloads** — `hb_download` writes to a temp file, rejects empty
+  responses, and verifies SHA-256 when supplied. Per-artifact checksum variables
+  and `HONEY_BADGER_REQUIRE_CHECKSUMS=1` fail closed.
+- **Tooling** — `Makefile` and `justfile` (`lint`, `test`, `check`, `theme`),
+  `scripts/lint-theme.py` (structure, selectors, WCAG contrast),
+  `scripts/generate_theme_variants.py`, and
+  `schema/honeybadger-summary.schema.json`.
+
+### Changed
+- **Renamed to Ratel Forge** — repository (`James-HoneyBadger/Ratel-Forge`),
+  display name, banner wordmark, documentation, and user-facing messages. GTK
+  theme IDs stay `Ratel` / `Ratel-HC`, and all `HONEY_BADGER_*` identifiers and
+  `honey-badger-*` commands are unchanged.
+- **Configuration is genuinely env-overridable** — every value now uses
+  `${VAR:-default}`; previously the file overwrote exported variables, so the
+  documented override behaviour did not work.
+- **Theme installation** — installs both variants to the user and system theme
+  directories, and the LightDM/XFCE appearance follows the selected variant and
+  configured fonts.
+- **Themes are part of CI** — the theme lint step checks palette coverage,
+  required widget selectors, and contrast ratios for both variants.
+- **Tests** — 234 checks (was 193), including manifests, resume, CLI validation,
+  dry-run write safety, and theme metadata.
+
+### Fixed
+- **Step counters could exceed the plan** — a full Arch run printed `[13/12]`.
+  Budgets are now measured per distro/type, the counter self-corrects when a
+  flow adds steps, and skip/component runs fall back to `[n]` rather than a
+  denominator that does not add up.
+- **Dry-run pipelines died with SIGPIPE (status 141)** — `hb_sudo` now drains
+  stdin, so `cmd | hb_sudo tee file` works in dry-run.
+- **Dry-run reported real success** — "System updated successfully" and
+  "Installed … packages" are replaced by "Would update/install …".
+- **Arch package checks ignored groups** — `xfce4` and `xfce4-goodies` are
+  groups, not packages, so they were reported as unavailable. The check now
+  resolves groups, and the manifest uses `7zip`/`fastfetch` (their predecessors
+  left the repositories).
+- **Slackware installs aborted after the first package** — `((installed++))`
+  returns status 1 when the old value is 0, which kills a `set -e` script. The
+  uninstaller had the same `((removed++))` bug.
+- `--version` parsing of the new `${VAR:-default}` config format.
+- Component guards log the actual package group rather than a variable name.
+- `honey-badger-theme` palette resolution and status output.
+- Uninstaller removes both theme variants.
+
+## [2.3.0] - 2026-10-25
+
+**Ratel.** A full look-and-feel and usability overhaul, plus fixes for several
+real defects found while reviewing the installer end to end.
+
+### Added
+- **Brand: Ratel** — the honey badger's proper common name. Chosen because the
+  project is a provisioning framework, not an operating system, so the `OS`
+  suffix was dropped. `HONEY_BADGER_*` environment variables and
+  `honey-badger-*` commands are unchanged for compatibility.
+- **New CLI options** — `--version`, `--list-types`, `--check`, `--yes`,
+  `--type`, `--no-banner`, `--ascii`, and `--skip-git`. `--help`, `--version`,
+  and `--list-types` run before the shared library is sourced and therefore have
+  no side effects.
+- **Single install-type catalogue** — one source of truth drives the menu, the
+  summary, and `--list-types`, so the three can no longer drift apart.
+- **Terminal design system** (`lib/common.sh`) — `hb_section`, `hb_rule`,
+  `hb_kv`, `hb_prompt`, `hb_confirm`, `hb_dry_run`, `hb_term_width`, plus
+  severity glyphs with automatic ASCII fallback and a 256-colour palette.
+- **Refined banner** — width-aware box, wordmark, and a metadata line with
+  version, codename, distribution, install type, and mode.
+- **GTK3 theme rewrite** — imports the Adwaita dark baseline, then overrides the
+  palette and every surface that defines the character (header bars, buttons,
+  entries, menus, tabs, scrollbars, switches, scales, progress/level bars,
+  sidebars, tree views, popovers, tooltips, infobars, status bars, links, focus
+  rings).
+- **GTK2 theme rewrite** — palette parity for legacy apps with no engine
+  dependency.
+- **Icon theme descriptor** — inherits `hicolor, Adwaita, gnome, Humanity`, so
+  no icon resolves to a blank square.
+- **XFCE appearance channels** — `xsettings.xml` and `xfwm4.xml` are written for
+  theme, icons, fonts, antialiasing, compositing, four workspaces, and a modern
+  button layout; applied live when `xfconf-query` is present.
+- **System-wide theme install** — `/usr/share/themes/Ratel` in addition to the
+  user copy, so LightDM and other accounts can use it.
+- **Utility UI library** — `~/.local/share/honey-badger/ui.sh` plus
+  `install-info` metadata shared by `honey-badger-info`, `-update`, and
+  `-install`, which now render consistently with the installer.
+- **Docs** — rewritten README with a CLI reference, palette table, and
+  architecture notes; refreshed user guide, project overview, contributing
+  guide, and verification report.
+
+### Changed
+- **Logging** — severity glyphs with aligned output on the terminal, and
+  timestamped, ANSI-free lines in log files for direct provisioner runs.
+- **Dry-run is now truthful** — user-level steps (nano, theme, wallpaper, Git
+  identity, pip, npm, utility scripts, XFCE settings) return early instead of
+  writing files. Previously only `sudo` commands were suppressed.
+- **Config** — palette keys replaced with semantic tokens (`_BG`, `_SURFACE`,
+  `_BASE`, `_BORDER`, `_TEXT`, `_MUTED_TEXT`, `_ACCENT`, `_ACCENT_TEXT`,
+  `_WARNING`, `_ERROR`, `_SUCCESS`, `_INFO`) plus `_FONT` and `_MONO_FONT`.
+- **Completions** — Bash and Zsh now cover every flag and complete install-type
+  values.
+- **Uninstaller** — knows the Ratel theme paths (user, system, legacy), restores
+  GTK and XFCE settings from backup, and reports what it will remove.
+
+### Fixed
+- **Distribution detection polluted its own result** — `detect_distribution`
+  logged to stdout while also echoing the family, so `distro=$(detect_distribution)`
+  captured log text and produced a path containing a newline. It now sets
+  `HB_DISTRO_FAMILY`/`HB_DISTRO_LABEL` and emits nothing.
+- **GTK3 theme was effectively broken** — a `* { background-color: … }` rule
+  painted every widget and destroyed depth; class selectors such as `.button`
+  and `.menubar` do not match GTK3 widget names. Both issues are gone.
+- **Icon theme pointed at an empty directory** — `IconTheme=HoneyBadger`
+  resolved to nothing; it now inherits the system set.
+- **LightDM could not see the theme** — it was installed only under `$HOME`,
+  which the greeter cannot read; a system-wide copy is now installed.
+- **`honey-badger-info` always reported version 1.0.0** — the quoted heredoc
+  prevented interpolation; the version now comes from generated metadata.
+- **Dry-run created real files** — see "Dry-run is now truthful" above.
+
+### Removed
+- Legacy `HONEY_BADGER_THEME_PRIMARY/SECONDARY` config keys (superseded by the
+  semantic palette).
 
 ## [2.1.0] - 2026-04-02
 

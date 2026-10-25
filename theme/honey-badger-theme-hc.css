@@ -1,0 +1,799 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Ratel — high-contrast GTK3 theme (GENERATED — do not edit)
+   Regenerate with: python3 scripts/generate_theme_variants.py
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Ratel — a warm dark GTK3 theme
+   ---------------------------------------------------------------------------
+   Design intent
+     • Espresso-dark surfaces reduce glare without going pure black, so depth
+       and elevation stay legible.
+     • A single honey-amber accent carries selection, focus, and progress.
+     • Type is warm off-white; secondary text is a muted sand that still clears
+       WCAG AA on every surface used here.
+     • Widgets are squared-off with 4–6px radii: calm, modern, not playful.
+
+   Compatibility
+     Requires GTK 3.20+ (Adwaita dark is imported as the baseline).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained-dark.css");
+
+/* ── Palette ─────────────────────────────────────────────────────────────── */
+@define-color ratel_bg #000000;
+@define-color ratel_surface #0b0906;
+@define-color ratel_surface_alt #15110c;
+@define-color ratel_base #000000;
+@define-color ratel_border #6f6250;
+@define-color ratel_text #ffffff;
+@define-color ratel_muted #e3d9c8;
+@define-color ratel_dim #b3a795;
+@define-color ratel_accent #ffc247;
+@define-color ratel_accent_soft #ffd780;
+@define-color ratel_on_accent #000000;
+@define-color ratel_warning #ffd166;
+@define-color ratel_error #ff7a6b;
+@define-color ratel_success #8fe08a;
+@define-color ratel_info #8cc6ff;
+
+/* ── Map onto the names applications expect ──────────────────────────────── */
+@define-color theme_bg_color                 @ratel_bg;
+@define-color theme_fg_color                 @ratel_text;
+@define-color theme_base_color               @ratel_base;
+@define-color theme_text_color               @ratel_text;
+@define-color theme_selected_bg_color        @ratel_accent;
+@define-color theme_selected_fg_color        @ratel_on_accent;
+@define-color theme_unfocused_bg_color       @ratel_bg;
+@define-color theme_unfocused_fg_color       @ratel_muted;
+@define-color theme_unfocused_base_color     @ratel_base;
+@define-color theme_unfocused_text_color     @ratel_text;
+@define-color theme_unfocused_selected_bg_color @ratel_accent;
+@define-color theme_unfocused_selected_fg_color @ratel_on_accent;
+@define-color insensitive_bg_color           @ratel_bg;
+@define-color insensitive_fg_color           @ratel_dim;
+@define-color insensitive_base_color         @ratel_base;
+@define-color borders                        @ratel_border;
+@define-color unfocused_borders              shade(@ratel_border, 0.8);
+@define-color content_view_bg                @ratel_base;
+@define-color warning_color                  @ratel_warning;
+@define-color error_color                    @ratel_error;
+@define-color success_color                  @ratel_success;
+@define-color link_color                     @ratel_accent;
+@define-color link_visited_color             shade(@ratel_accent, 0.85);
+@define-color placeholder_text_color         @ratel_dim;
+@define-color text_shadow_color              alpha(#000000, 0.35);
+@define-color tooltip_bg_color               @ratel_surface_alt;
+@define-color tooltip_fg_color               @ratel_text;
+@define-color wm_title                       @ratel_text;
+@define-color wm_unfocused_title             @ratel_muted;
+@define-color wm_highlight                   alpha(#ffffff, 0.06);
+@define-color wm_border                      @ratel_border;
+
+/* ── Window & backdrop ───────────────────────────────────────────────────── */
+window,
+.background {
+    background-color: @ratel_bg;
+    color: @ratel_text;
+}
+
+window:backdrop,
+.background:backdrop {
+    color: @ratel_muted;
+}
+
+/* ── Header bars ─────────────────────────────────────────────────────────── */
+headerbar,
+.titlebar {
+    background-color: @ratel_surface;
+    background-image: linear-gradient(to bottom, shade(@ratel_surface, 1.06), @ratel_surface);
+    border-bottom: 1px solid @ratel_border;
+    box-shadow: none;
+    color: @ratel_text;
+    padding: 4px 6px;
+    min-height: 38px;
+}
+
+headerbar:backdrop,
+.titlebar:backdrop {
+    background-image: none;
+    background-color: shade(@ratel_surface, 0.96);
+    color: @ratel_muted;
+}
+
+headerbar .title,
+.titlebar .title {
+    font-weight: 600;
+    color: @ratel_text;
+}
+
+headerbar .subtitle {
+    color: @ratel_muted;
+    font-size: smaller;
+}
+
+headerbar button,
+.titlebar button {
+    background-color: transparent;
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    box-shadow: none;
+    color: @ratel_text;
+}
+
+headerbar button:hover,
+.titlebar button:hover {
+    background-color: alpha(@ratel_accent, 0.16);
+    border-color: alpha(@ratel_accent, 0.28);
+}
+
+headerbar button:active,
+headerbar button:checked,
+.titlebar button:active,
+.titlebar button:checked {
+    background-color: alpha(@ratel_accent, 0.26);
+    border-color: @ratel_accent;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+button {
+    background-color: @ratel_surface;
+    background-image: linear-gradient(to bottom, shade(@ratel_surface, 1.08), @ratel_surface);
+    border: 1px solid @ratel_border;
+    border-radius: 5px;
+    box-shadow: none;
+    color: @ratel_text;
+    padding: 5px 14px;
+    min-height: 20px;
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+button:hover {
+    background-image: linear-gradient(to bottom, shade(@ratel_surface, 1.18), shade(@ratel_surface, 1.06));
+    border-color: shade(@ratel_border, 1.35);
+}
+
+button:active,
+button:checked {
+    background-image: none;
+    background-color: shade(@ratel_surface, 0.9);
+    border-color: @ratel_accent;
+    color: @ratel_text;
+}
+
+button:disabled {
+    background-image: none;
+    background-color: shade(@ratel_bg, 1.05);
+    border-color: shade(@ratel_border, 0.7);
+    color: @ratel_dim;
+}
+
+button:focus {
+    outline: 2px solid alpha(@ratel_accent, 0.65);
+    outline-offset: 1px;
+}
+
+button.flat {
+    background: none;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+button.flat:hover {
+    background-color: alpha(@ratel_accent, 0.14);
+    border-color: transparent;
+}
+
+button.suggested-action {
+    background-image: linear-gradient(to bottom, @ratel_accent_soft, @ratel_accent);
+    border-color: shade(@ratel_accent, 0.82);
+    color: @ratel_on_accent;
+    font-weight: 600;
+}
+
+button.suggested-action:hover {
+    background-image: linear-gradient(to bottom, shade(@ratel_accent_soft, 1.05), shade(@ratel_accent, 1.05));
+}
+
+button.destructive-action {
+    background-image: linear-gradient(to bottom, shade(@ratel_error, 1.08), @ratel_error);
+    border-color: shade(@ratel_error, 0.8);
+    color: #1c0f0d;
+    font-weight: 600;
+}
+
+/* ── Entries & text views ────────────────────────────────────────────────── */
+entry,
+spinbutton,
+.text-view {
+    background-color: @ratel_base;
+    background-image: none;
+    border: 1px solid @ratel_border;
+    border-radius: 5px;
+    box-shadow: inset 0 1px 1px alpha(#000000, 0.25);
+    color: @ratel_text;
+    caret-color: @ratel_accent;
+    padding: 4px 7px;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+entry:focus,
+spinbutton:focus {
+    border-color: @ratel_accent;
+    box-shadow: inset 0 0 0 1px alpha(@ratel_accent, 0.55);
+}
+
+entry:disabled,
+spinbutton:disabled {
+    background-color: shade(@ratel_base, 1.1);
+    color: @ratel_dim;
+}
+
+entry.error {
+    border-color: @ratel_error;
+}
+
+entry.warning {
+    border-color: @ratel_warning;
+}
+
+textview,
+textview text {
+    background-color: @ratel_base;
+    color: @ratel_text;
+}
+
+textview border {
+    background-color: shade(@ratel_base, 1.15);
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────── */
+*:selected,
+*:selected:focus {
+    background-color: @ratel_accent;
+    color: @ratel_on_accent;
+}
+
+.view:selected,
+iconview:selected,
+treeview.view:selected,
+row:selected {
+    background-color: @ratel_accent;
+    color: @ratel_on_accent;
+}
+
+/* ── Menus ───────────────────────────────────────────────────────────────── */
+menubar,
+.menubar {
+    background-color: @ratel_surface;
+    background-image: none;
+    border-bottom: 1px solid @ratel_border;
+    box-shadow: none;
+    color: @ratel_text;
+    padding: 1px 2px;
+}
+
+menubar > menuitem {
+    border-radius: 4px;
+    padding: 4px 9px;
+}
+
+menubar > menuitem:hover {
+    background-color: alpha(@ratel_accent, 0.18);
+    color: @ratel_text;
+}
+
+menu,
+.menu,
+popover.background,
+.context-menu {
+    background-color: @ratel_surface;
+    border: 1px solid @ratel_border;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px alpha(#000000, 0.45);
+    color: @ratel_text;
+    padding: 4px;
+}
+
+menuitem {
+    border-radius: 4px;
+    padding: 5px 10px;
+    transition: background-color 100ms ease;
+}
+
+menuitem:hover,
+menuitem:selected {
+    background-color: @ratel_accent;
+    color: @ratel_on_accent;
+}
+
+menuitem:disabled {
+    color: @ratel_dim;
+}
+
+menuitem accelerator {
+    color: @ratel_dim;
+}
+
+menu separator,
+.menu separator {
+    background-color: @ratel_border;
+    min-height: 1px;
+    margin: 4px 2px;
+}
+
+/* ── Popovers ────────────────────────────────────────────────────────────── */
+popover,
+popover.background {
+    background-color: @ratel_surface;
+    border: 1px solid @ratel_border;
+    border-radius: 6px;
+    box-shadow: 0 10px 28px alpha(#000000, 0.5);
+    color: @ratel_text;
+}
+
+popover > list,
+popover > .view,
+popover > toolbar {
+    background-color: transparent;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+toolbar,
+.toolbar {
+    background-color: @ratel_surface;
+    background-image: none;
+    border-bottom: 1px solid @ratel_border;
+    padding: 3px;
+}
+
+toolbar button {
+    padding: 4px 8px;
+}
+
+/* ── Notebook / tabs ─────────────────────────────────────────────────────── */
+notebook > header {
+    background-color: shade(@ratel_bg, 1.05);
+    border-color: @ratel_border;
+    padding: 2px;
+}
+
+notebook > header > tabs > tab {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 5px 5px 0 0;
+    color: @ratel_muted;
+    padding: 5px 14px;
+    min-height: 20px;
+}
+
+notebook > header > tabs > tab:hover {
+    background-color: alpha(@ratel_accent, 0.12);
+    color: @ratel_text;
+}
+
+notebook > header > tabs > tab:checked {
+    background-color: @ratel_bg;
+    border-color: @ratel_border;
+    color: @ratel_text;
+    box-shadow: inset 0 2px 0 @ratel_accent;
+}
+
+notebook > stack {
+    background-color: @ratel_bg;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+scrollbar {
+    background-color: transparent;
+    border: none;
+}
+
+scrollbar trough {
+    background-color: transparent;
+    border: none;
+}
+
+scrollbar slider {
+    background-color: alpha(@ratel_text, 0.22);
+    border: none;
+    border-radius: 6px;
+    min-width: 6px;
+    min-height: 28px;
+    margin: 2px;
+    transition: background-color 140ms ease;
+}
+
+scrollbar slider:hover {
+    background-color: alpha(@ratel_accent, 0.6);
+}
+
+scrollbar slider:active {
+    background-color: @ratel_accent;
+}
+
+scrollbar.overlay-indicator:not(.dragging):not(.hovering) slider {
+    background-color: alpha(@ratel_text, 0.3);
+    min-width: 5px;
+    min-height: 5px;
+}
+
+/* ── Check & radio ───────────────────────────────────────────────────────── */
+check {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 4px;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+check:hover {
+    border-color: @ratel_accent;
+}
+
+check:checked,
+check:indeterminate {
+    background-color: @ratel_accent;
+    border-color: shade(@ratel_accent, 0.85);
+    color: @ratel_on_accent;
+    -gtk-icon-source: -gtk-icontheme("object-select-symbolic");
+}
+
+radio {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 50%;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+radio:hover {
+    border-color: @ratel_accent;
+}
+
+radio:checked {
+    background-color: @ratel_accent;
+    border-color: shade(@ratel_accent, 0.85);
+    color: @ratel_on_accent;
+    -gtk-icon-source: -gtk-icontheme("radio-checked-symbolic");
+}
+
+/* ── Switches ────────────────────────────────────────────────────────────── */
+switch {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 14px;
+    color: transparent;
+    min-width: 44px;
+    min-height: 24px;
+    transition: background-color 160ms ease;
+}
+
+switch:checked {
+    background-color: @ratel_accent;
+    border-color: shade(@ratel_accent, 0.85);
+}
+
+switch slider {
+    background-color: @ratel_text;
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px alpha(#000000, 0.4);
+    min-width: 20px;
+    min-height: 20px;
+    margin: 1px;
+}
+
+/* ── Scales ──────────────────────────────────────────────────────────────── */
+scale trough {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 4px;
+    min-height: 6px;
+    min-width: 6px;
+}
+
+scale highlight {
+    background-color: @ratel_accent;
+    border-radius: 4px;
+}
+
+scale slider {
+    background-color: @ratel_text;
+    border: 2px solid @ratel_accent;
+    border-radius: 50%;
+    box-shadow: 0 2px 6px alpha(#000000, 0.4);
+    min-width: 14px;
+    min-height: 14px;
+    margin: -5px;
+}
+
+scale slider:hover {
+    background-color: @ratel_accent_soft;
+}
+
+/* ── Progress & level bars ───────────────────────────────────────────────── */
+progressbar trough {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 5px;
+    min-height: 8px;
+}
+
+progressbar progress {
+    background-image: linear-gradient(to right, @ratel_accent, @ratel_accent_soft);
+    border-radius: 5px;
+    min-height: 8px;
+}
+
+progressbar text {
+    color: @ratel_text;
+    text-shadow: 0 1px 1px alpha(#000000, 0.5);
+}
+
+levelbar block {
+    border-radius: 3px;
+    min-height: 6px;
+}
+
+levelbar block.filled {
+    background-color: @ratel_accent;
+    border-color: shade(@ratel_accent, 0.85);
+}
+
+levelbar block.low {
+    background-color: @ratel_warning;
+}
+
+levelbar block.high {
+    background-color: @ratel_success;
+}
+
+levelbar trough {
+    background-color: @ratel_base;
+    border: 1px solid @ratel_border;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+/* ── Tree views & lists ──────────────────────────────────────────────────── */
+treeview.view {
+    background-color: @ratel_base;
+    color: @ratel_text;
+    border-color: shade(@ratel_border, 0.9);
+}
+
+treeview.view:hover {
+    background-color: alpha(@ratel_accent, 0.08);
+}
+
+treeview.view:selected {
+    background-color: @ratel_accent;
+    color: @ratel_on_accent;
+}
+
+treeview.view header button {
+    background-color: @ratel_surface;
+    background-image: none;
+    border: none;
+    border-bottom: 1px solid @ratel_border;
+    border-radius: 0;
+    color: @ratel_muted;
+    font-weight: 600;
+    padding: 5px 8px;
+}
+
+treeview.view header button:hover {
+    color: @ratel_text;
+}
+
+list,
+list row {
+    background-color: transparent;
+}
+
+list row:hover {
+    background-color: alpha(@ratel_text, 0.05);
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.sidebar,
+placessidebar,
+stacksidebar list {
+    background-color: shade(@ratel_bg, 1.04);
+    border-right: 1px solid @ratel_border;
+    color: @ratel_muted;
+}
+
+.sidebar row:hover,
+placessidebar row:hover {
+    background-color: alpha(@ratel_accent, 0.1);
+    color: @ratel_text;
+}
+
+.sidebar row:selected,
+placessidebar row:selected {
+    background-color: alpha(@ratel_accent, 0.2);
+    box-shadow: inset 3px 0 0 @ratel_accent;
+    color: @ratel_text;
+    font-weight: 600;
+}
+
+/* ── Spin buttons & combo boxes ──────────────────────────────────────────── */
+spinbutton button {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 4px;
+}
+
+combobox button.combo {
+    padding: 4px 10px;
+}
+
+cellview {
+    color: inherit;
+}
+
+/* ── Tooltips ────────────────────────────────────────────────────────────── */
+tooltip,
+tooltip.background {
+    background-color: @ratel_surface_alt;
+    border: 1px solid @ratel_border;
+    border-radius: 5px;
+    box-shadow: 0 6px 18px alpha(#000000, 0.45);
+    color: @ratel_text;
+    padding: 5px 8px;
+}
+
+tooltip decoration {
+    background-color: transparent;
+}
+
+/* ── Dialogs & message dialogs ───────────────────────────────────────────── */
+dialog,
+messagedialog,
+.dialog {
+    background-color: @ratel_bg;
+    color: @ratel_text;
+}
+
+messagedialog .titlebar {
+    background-color: @ratel_surface;
+    border-bottom: 1px solid @ratel_border;
+}
+
+/* ── Infobars ────────────────────────────────────────────────────────────── */
+infobar {
+    border: none;
+    border-radius: 5px;
+}
+
+infobar.info {
+    background-color: alpha(@ratel_info, 0.18);
+    color: @ratel_text;
+}
+
+infobar.warning {
+    background-color: alpha(@ratel_warning, 0.2);
+    color: @ratel_text;
+}
+
+infobar.error {
+    background-color: alpha(@ratel_error, 0.2);
+    color: @ratel_text;
+}
+
+infobar .title {
+    font-weight: 600;
+}
+
+/* ── Status bar ──────────────────────────────────────────────────────────── */
+statusbar {
+    background-color: @ratel_surface;
+    border-top: 1px solid @ratel_border;
+    color: @ratel_muted;
+    font-size: smaller;
+    padding: 2px 8px;
+}
+
+/* ── Separators & frames ─────────────────────────────────────────────────── */
+separator {
+    background-color: @ratel_border;
+    min-width: 1px;
+    min-height: 1px;
+}
+
+frame > border,
+.frame {
+    border: 1px solid @ratel_border;
+    border-radius: 5px;
+}
+
+paned > separator {
+    background-color: @ratel_border;
+    min-width: 1px;
+    min-height: 1px;
+}
+
+/* ── Links ───────────────────────────────────────────────────────────────── */
+*:link {
+    color: @ratel_accent;
+}
+
+*:link:hover {
+    color: @ratel_accent_soft;
+}
+
+*:link:visited {
+    color: shade(@ratel_accent, 0.88);
+}
+
+/* ── Focus ring ──────────────────────────────────────────────────────────── */
+*:focus {
+    outline: 2px solid alpha(@ratel_accent, 0.55);
+    outline-offset: 1px;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+spinner {
+    color: @ratel_accent;
+    opacity: 0.9;
+}
+
+/* ── Drag & drop / resize grips ──────────────────────────────────────────── */
+.dnd {
+    border: 1px solid @ratel_accent;
+}
+
+/* ── OSD ─────────────────────────────────────────────────────────────────── */
+.osd {
+    background-color: alpha(@ratel_surface_alt, 0.96);
+    border: 1px solid @ratel_border;
+    border-radius: 8px;
+    color: @ratel_text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   High-contrast overrides
+   Thicker borders and focus rings; every foreground clears AAA contrast on
+   its surface.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+*:focus {
+    outline: 3px solid @ratel_accent;
+    outline-offset: 2px;
+}
+
+button,
+entry,
+spinbutton,
+check,
+radio {
+    border-width: 2px;
+}
+
+headerbar,
+.titlebar {
+    border-bottom-width: 2px;
+}
+
+scrollbar slider {
+    background-color: alpha(@ratel_text, 0.45);
+}
+
+scrollbar slider:hover {
+    background-color: @ratel_accent;
+}
+
+notebook > header > tabs > tab:checked {
+    box-shadow: inset 0 3px 0 @ratel_accent;
+}
+
+.sidebar row:selected,
+placessidebar row:selected {
+    box-shadow: inset 4px 0 0 @ratel_accent;
+}

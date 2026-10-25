@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS Script Verification Tool
+# Ratel Forge Script Verification Tool
 # Tests the installation scripts for common issues and potential problems
 
 set -euo pipefail
@@ -43,15 +43,15 @@ test_syntax() {
         log_fail "Main script has syntax errors"
     fi
 
-    # Shared library
-    if [[ -f lib/common.sh ]]; then
-        log_test "Shared library syntax"
-        if bash -n lib/common.sh 2>/dev/null; then
-            log_pass "lib/common.sh syntax is valid"
+    # Shared library modules
+    for libfile in lib/*.sh; do
+        log_test "Syntax check for $libfile"
+        if bash -n "$libfile" 2>/dev/null; then
+            log_pass "$libfile syntax is valid"
         else
-            log_fail "lib/common.sh has syntax errors"
+            log_fail "$libfile has syntax errors"
         fi
-    fi
+    done
 
     for script in distros/*/install-*.sh; do
         local script_name=$(basename "$script")
@@ -172,10 +172,10 @@ test_required_functions() {
                          "hb_rollback_init" "hb_load_checkpoint" "hb_clear_checkpoint"
                          "hb_show_banner" "hb_init_distro_log" "hb_enable_service")
         for func in "${lib_funcs[@]}"; do
-            if grep -qE "^${func}\s*\(\)" lib/common.sh; then
-                log_pass "lib/common.sh has '$func'"
+            if grep -qE "^${func}\s*\(\)" lib/common.sh lib/*.sh; then
+                log_pass "shared library has '$func'"
             else
-                log_fail "lib/common.sh missing '$func'"
+                log_fail "shared library missing '$func'"
             fi
         done
     fi
@@ -331,8 +331,23 @@ test_new_project_files() {
         ".github/workflows/ci.yml"
         "CHANGELOG.md"
         "CONTRIBUTING.md"
+        "LICENSE"
         "completions/honey-badger.bash"
         "completions/honey-badger.zsh"
+        "theme/index.theme"
+        "theme/index-hc.theme"
+        "theme/honey-badger-theme-hc.css"
+        "assets/ratel-logo.svg"
+        "lib/ui.sh"
+        "lib/theme.sh"
+        "lib/utilities.sh"
+        "lib/packages.sh"
+        "Makefile"
+        "justfile"
+        "schema/honeybadger-summary.schema.json"
+        "scripts/lint-theme.py"
+        "scripts/generate_theme_variants.py"
+        "scripts/theme-screenshot.sh"
     )
     for pf in "${project_files[@]}"; do
         log_test "Project file '$pf' exists"
@@ -344,9 +359,34 @@ test_new_project_files() {
     done
 }
 
+
+# Test 11: Package manifests
+test_package_manifests() {
+    echo -e "\n=== PACKAGE MANIFEST VALIDATION ==="
+
+    local families=(arch debian fedora gentoo opensuse slackware void)
+    for family in "${families[@]}"; do
+        local manifest="config/packages/${family}.conf"
+        log_test "Manifest for $family exists and is structured"
+        if [[ -s "$manifest" ]] && grep -q '^\[BASE_PACKAGES\]$' "$manifest"; then
+            log_pass "$manifest has a BASE_PACKAGES section"
+        else
+            log_fail "$manifest is missing or malformed"
+        fi
+
+        log_test "$family provisioner loads its manifest"
+        if grep -q "hb_load_package_manifest .*config/packages/${family}.conf" \
+            "distros/${family}/install-${family}.sh"; then
+            log_pass "$family provisioner loads $manifest"
+        else
+            log_fail "$family provisioner does not load its manifest"
+        fi
+    done
+}
+
 # Main test runner
 run_all_tests() {
-    echo "🦡 Honey Badger OS Script Verification Tool"
+    echo "🦡 Ratel Forge Script Verification Tool"
     echo "============================================="
 
     test_syntax
@@ -359,6 +399,7 @@ run_all_tests() {
     test_config_files
     test_shared_library_parity
     test_new_project_files
+    test_package_manifests
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
     echo -e "\n============================================="

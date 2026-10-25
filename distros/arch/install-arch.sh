@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Arch Linux Post-Install Script
+# Ratel Forge - Arch Linux Post-Install Script
 # Supports: Arch Linux, Manjaro, EndeavourOS, ArcoLinux, Artix
 
 set -euo pipefail
@@ -10,65 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "arch"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-declare -a BASE_PACKAGES=(
-    "base-devel" "curl" "wget" "git" "git-lfs" "unzip" "zip" "p7zip"
-    "htop" "neofetch" "tree" "tmux" "screen"
-    "networkmanager" "network-manager-applet" "wireless_tools" "wpa_supplicant"
-    "openssh" "rsync" "nmap" "wireshark-qt"
-    "gparted" "ntfs-3g" "exfat-utils" "dosfstools"
-    "pulseaudio" "pulseaudio-alsa" "pavucontrol" "alsa-utils"
-    "ttf-dejavu" "ttf-liberation" "noto-fonts" "noto-fonts-emoji"
-    "ttf-roboto" "ttf-opensans"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python" "python-pip" "python-virtualenv" "python-poetry"
-    "nodejs" "npm" "yarn"
-    "go" "rust" "cargo"
-    "jdk-openjdk" "openjdk-doc"
-    "ruby" "rubygems"
-    "php" "composer"
-    "make" "cmake" "ninja" "meson"
-    "gcc" "clang" "gdb" "valgrind"
-    "docker" "docker-compose"
-    "postgresql" "mariadb" "sqlite" "redis"
-    "neovim" "code"
-    "github-cli" "git-delta"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4" "xfce4-goodies" "lightdm" "lightdm-gtk-greeter"
-    "lightdm-gtk-greeter-settings"
-    "thunar" "thunar-volman" "thunar-archive-plugin" "thunar-media-tags-plugin"
-    "file-roller" "gvfs" "gvfs-smb" "gvfs-mtp"
-    "xfce4-taskmanager" "xfce4-systemload-plugin" "xfce4-cpugraph-plugin"
-    "xfce4-netload-plugin" "xfce4-diskperf-plugin"
-    "rofi" "dmenu"
-    "xfce4-notifyd" "network-manager-applet" "blueman"
-    "imagemagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "firefox" "chromium"
-    "libreoffice-fresh" "hunspell" "hunspell-en_us"
-    "gimp" "inkscape" "vlc" "audacity" "obs-studio"
-    "imagemagick" "ffmpeg"
-    "thunderbird" "telegram-desktop" "discord"
-    "galculator" "xarchiver" "mousepad"
-    "xfce4-screenshooter"
-    "gstreamer" "gst-plugins-base" "gst-plugins-good" "gst-plugins-bad" "gst-plugins-ugly" "gst-libav"
-)
-
-declare -a AUR_PACKAGES=(
-    "visual-studio-code-bin"
-    "postman-bin"
-    "slack-desktop"
-    "google-chrome"
-)
+# Data lives in config/packages/arch.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/arch.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Arch Linux" "Fearless Arch-based Distribution Setup"
+    hb_show_banner "Arch Linux" "Arch-based provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -88,13 +36,21 @@ update_system() {
     hb_next_step "Updating system packages..."
     hb_sudo pacman -Sy --noconfirm
     hb_sudo pacman -Su --noconfirm
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── AUR helper ───────────────────────────────────────────────────────────────
 install_yay() {
+    if ! hb_component_enabled apps && ! hb_component_enabled dev; then
+        log_info "Skipping yay (apps and dev components disabled)"
+        return 0
+    fi
     if command -v yay >/dev/null 2>&1; then
         log_info "yay AUR helper already installed"
+        return 0
+    fi
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would build and install the yay AUR helper"
         return 0
     fi
     hb_next_step "Installing yay AUR helper..."
@@ -108,13 +64,17 @@ install_yay() {
     fi
     (cd "$temp_dir" && makepkg -si --noconfirm)
     rm -rf "$temp_dir"
-    log_success "yay AUR helper installed"
+    hb_outcome "Would install yay" "yay AUR helper installed"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_pacman_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -124,7 +84,8 @@ install_pacman_packages() {
     for package in "${packages_ref[@]}"; do
         if pacman -Qi "$package" >/dev/null 2>&1; then
             log_info "$package already installed"
-        elif pacman -Si "$package" >/dev/null 2>&1; then
+        elif pacman -Si "$package" >/dev/null 2>&1 ||
+             pacman -Sgq "$package" >/dev/null 2>&1; then
             available_packages+=("$package")
         else
             log_warning "$package not available in repositories"
@@ -133,7 +94,7 @@ install_pacman_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo pacman -S --noconfirm --needed "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -146,18 +107,28 @@ install_pacman_packages() {
 install_aur_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if ! command -v yay >/dev/null 2>&1; then
         log_warning "yay not available, skipping AUR packages"
         return 0
     fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then return 0; fi
+    if hb_dry_run; then
+        for package in "${packages_ref[@]}"; do
+            log_info "[DRY-RUN] Would install AUR package: $package"
+        done
+        return 0
+    fi
     hb_next_step "Installing $package_type AUR packages..."
     for package in "${packages_ref[@]}"; do
         if pacman -Qi "$package" >/dev/null 2>&1; then
             log_info "$package already installed"
         elif yay -S --noconfirm --needed "$package" 2>/dev/null; then
             hb_json_add_package "$package"
-            log_success "Installed $package from AUR"
+            hb_outcome "Would install $package from AUR" "Installed $package from AUR"
         else
             log_warning "Failed to install $package from AUR"
         fi
@@ -205,34 +176,41 @@ install_packages_by_type() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Arch Linux Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Arch Linux Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="arch"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 12 ;;
-        developer) hb_set_total_steps 10 ;;
-        desktop) hb_set_total_steps 9 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 13 ;;
+            developer) hb_set_total_steps 12 ;;
+            desktop)   hb_set_total_steps 10 ;;
+            minimal)   hb_set_total_steps 4 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo pacman -Syu --noconfirm" \
         "sudo pacman -S --noconfirm" \
         "sudo pacman -Sc --noconfirm"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_development_environment
+        hb_phase dev setup_development_environment
     fi
     show_post_install
 }

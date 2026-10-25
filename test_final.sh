@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Final Smoke Tests
+# Ratel - Final Smoke Tests
 # Execution-level tests that validate scripts can be sourced and functions work
 
 set -euo pipefail
@@ -24,6 +24,9 @@ test_syntax_all() {
     local scripts=(
         install.sh
         lib/common.sh
+        lib/ui.sh
+        lib/theme.sh
+        lib/utilities.sh
         distros/arch/install-arch.sh
         distros/debian/install-debian.sh
         distros/fedora/install-fedora.sh
@@ -36,6 +39,8 @@ test_syntax_all() {
         assets/honey-badger-info
         assets/honey-badger-update
         assets/honey-badger-install
+        assets/honey-badger-theme
+        assets/honey-badger-doctor
         completions/honey-badger.bash
         completions/honey-badger.zsh
         uninstall.sh
@@ -145,15 +150,15 @@ test_bashrc_idempotent() {
 
     (
         export HONEY_BADGER_ROOT="$SCRIPT_DIR"
-        export HONEY_BADGER_DRY_RUN=1
         export HOME="$tmp_dir"
         source "$SCRIPT_DIR/lib/common.sh"
         ensure_bashrc_line "export TEST_VAR=1"
         ensure_bashrc_line "export TEST_VAR=1"
-    ) 2>/dev/null
+    ) >/dev/null 2>&1
 
     local count
-    count=$(grep -c "export TEST_VAR=1" "$tmp_dir/.bashrc" 2>/dev/null || echo "0")
+    count=$(grep -c "export TEST_VAR=1" "$tmp_dir/.bashrc" 2>/dev/null || true)
+    count="${count:-0}"
     rm -rf "$tmp_dir"
 
     if [[ "$count" -le 1 ]]; then
@@ -265,10 +270,10 @@ test_backup_file() {
     echo "original content" > "$tmp_dir/testfile.conf"
     (
         export HONEY_BADGER_ROOT="$SCRIPT_DIR"
-        export HONEY_BADGER_DRY_RUN=1
+        export HOME="$tmp_dir"
         source "$SCRIPT_DIR/lib/common.sh"
         hb_backup_file "$tmp_dir/testfile.conf"
-    ) 2>/dev/null
+    ) >/dev/null 2>&1
     if [[ -f "$tmp_dir/testfile.conf.hb-backup" ]]; then
         log_pass "hb_backup_file creates .hb-backup"
     else
@@ -455,9 +460,178 @@ test_skip_theme_flag() {
     fi
 }
 
+# ── Test 19: --version ────────────────────────────────────────────────────
+test_version_flag() {
+    echo -e "\n=== INSTALL --VERSION ==="
+    log_test "install.sh --version prints a semantic version"
+    local output
+    if output=$(bash "$SCRIPT_DIR/install.sh" --version 2>&1); then
+        if echo "$output" | grep -qE "Ratel Forge [0-9]+\.[0-9]+\.[0-9]+"; then
+            log_pass "install.sh --version reports a semantic version"
+        else
+            log_fail "install.sh --version output unexpected: $output"
+        fi
+    else
+        log_fail "install.sh --version exited non-zero"
+    fi
+}
+
+# ── Test 20: --list-types ─────────────────────────────────────────────────
+test_list_types() {
+    echo -e "\n=== INSTALL --LIST-TYPES ==="
+    log_test "install.sh --list-types lists all four types"
+    local output t ok=1
+    if ! output=$(bash "$SCRIPT_DIR/install.sh" --list-types 2>&1); then
+        log_fail "install.sh --list-types exited non-zero"
+        return 0
+    fi
+    for t in full developer desktop minimal; do
+        echo "$output" | grep -qi "$t" || ok=0
+    done
+    if [[ $ok -eq 1 ]]; then
+        log_pass "All four install types are listed"
+    else
+        log_fail "install.sh --list-types is missing a type"
+    fi
+}
+
+# ── Test 21: invalid --type is rejected ───────────────────────────────────
+test_invalid_type() {
+    echo -e "\n=== INSTALL --TYPE VALIDATION ==="
+    log_test "install.sh rejects an unknown install type"
+    local rc=0
+    bash "$SCRIPT_DIR/install.sh" --type nonsense >/dev/null 2>&1 || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        log_pass "Unknown install type exits with status 2"
+    else
+        log_fail "Unknown install type produced exit status $rc (expected 2)"
+    fi
+}
+
+# ── Test 22: dry-run performs no user-level writes ────────────────────────
+test_dry_run_no_writes() {
+    echo -e "\n=== DRY-RUN WRITE SAFETY ==="
+    log_test "setup_nano writes nothing in dry-run mode"
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    (
+        export HOME="$tmp_dir"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_DRY_RUN=1
+        export HONEY_BADGER_VERBOSITY=0
+        # shellcheck source=/dev/null
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_set_total_steps 1
+        setup_nano
+    ) >/dev/null 2>&1 || true
+
+    if [[ ! -e "$tmp_dir/.nanorc" ]]; then
+        log_pass "Dry-run left ~/.nanorc untouched"
+    else
+        log_fail "Dry-run created ~/.nanorc"
+    fi
+    rm -rf "$tmp_dir"
+}
+
+# ── Test 23: theme metadata consistency ───────────────────────────────────
+test_theme_metadata() {
+    echo -e "\n=== THEME METADATA ==="
+    log_test "Theme descriptor and palette agree on the Ratel name"
+    if grep -q "^Name=Ratel" "$SCRIPT_DIR/theme/index.theme" 2>/dev/null; then
+        log_pass "theme/index.theme declares the Ratel metatheme"
+    else
+        log_fail "theme/index.theme is missing Name=Ratel"
+    fi
+
+    log_test "Config defines the full palette"
+    local key ok=1
+    for key in BG SURFACE BASE BORDER TEXT MUTED_TEXT ACCENT ACCENT_TEXT; do
+        grep -q "^HONEY_BADGER_THEME_${key}=" "$SCRIPT_DIR/config/honey-badger-os.conf" || ok=0
+    done
+    if [[ $ok -eq 1 ]]; then
+        log_pass "All palette tokens are defined"
+    else
+        log_fail "Config is missing palette tokens"
+    fi
+}
+
+
+# ── Test 24: package manifest loader ──────────────────────────────────────
+test_package_manifest_loader() {
+    echo -e "\n=== PACKAGE MANIFEST LOADER ==="
+    log_test "hb_load_package_manifest populates arrays"
+    local result
+    result=$(
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_VERBOSITY=0
+        export HOME="$(mktemp -d)"
+        source "$SCRIPT_DIR/lib/common.sh"
+        hb_load_package_manifest "$SCRIPT_DIR/config/packages/arch.conf"
+        printf 'base:%s dev:%s aur:%s\n' \
+            "${#BASE_PACKAGES[@]}" "${#DEVELOPER_PACKAGES[@]}" "${#AUR_PACKAGES[@]}"
+        empty=0
+        for item in "${BASE_PACKAGES[@]}"; do [[ -n "$item" ]] || empty=1; done
+        printf 'empty:%s\n' "$empty"
+        rm -rf "$HOME"
+    ) 2>/dev/null
+    if echo "$result" | grep -qE 'base:[1-9][0-9]* dev:[1-9][0-9]* aur:[1-9][0-9]*'; then
+        log_pass "Manifest arrays are populated"
+    else
+        log_fail "Manifest loading failed (got: $result)"
+    fi
+    if echo "$result" | grep -q 'empty:0'; then
+        log_pass "Manifest contains no empty entries"
+    else
+        log_fail "Manifest contains empty entries"
+    fi
+}
+
+
+# ── Test 25: phase resume ─────────────────────────────────────────────────
+test_phase_resume() {
+    echo -e "\n=== PHASE RESUME ==="
+    log_test "Completed phases are skipped with --resume"
+    local tmp_dir result
+    tmp_dir=$(mktemp -d)
+    result=$(
+        export HOME="$tmp_dir"
+        export HONEY_BADGER_ROOT="$SCRIPT_DIR"
+        export HONEY_BADGER_VERBOSITY=0
+        export HONEY_BADGER_DISTRO="debian"
+        export HONEY_BADGER_INSTALL_TYPE="full"
+        source "$SCRIPT_DIR/lib/common.sh"
+
+        ran=0
+        work() { ran=$((ran + 1)); }
+
+        hb_phases_init "full"
+        hb_phase alpha work
+        hb_phase beta work
+        echo "first:$ran"
+
+        export HONEY_BADGER_RESUME=1
+        hb_phases_init "full"
+        hb_phase alpha work
+        hb_phase gamma work
+        echo "second:$ran"
+    ) 2>/dev/null
+    rm -rf "$tmp_dir"
+
+    if echo "$result" | grep -q 'first:2'; then
+        log_pass "Both phases ran on the first pass"
+    else
+        log_fail "First pass ran an unexpected number of phases ($result)"
+    fi
+    if echo "$result" | grep -q 'second:3'; then
+        log_pass "Resume skipped only the completed phase"
+    else
+        log_fail "Resume did not skip exactly the completed phase ($result)"
+    fi
+}
+
 # ── Main ───────────────────────────────────────────────────────────────────
 run_final_tests() {
-    echo "🦡 Honey Badger OS - Final Smoke Tests"
+    echo "🦡 Ratel - Final Smoke Tests"
     echo "======================================="
 
     test_syntax_all
@@ -478,6 +652,13 @@ run_final_tests() {
     test_init_distro_log
     test_config_validation
     test_skip_theme_flag
+    test_version_flag
+    test_list_types
+    test_invalid_type
+    test_dry_run_no_writes
+    test_theme_metadata
+    test_package_manifest_loader
+    test_phase_resume
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))
     echo -e "\n======================================="

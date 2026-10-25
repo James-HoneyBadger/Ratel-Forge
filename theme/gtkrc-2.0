@@ -1,31 +1,129 @@
-# Honey Badger GTK2 Theme
-gtk-color-scheme = "base_color:#2d2006\nbg_color:#8b6914\ntooltip_bg_color:#f5deb3\nselected_bg_color:#daa520\ntext_color:#f5deb3\nfg_color:#f5deb3\ntooltip_fg_color:#2d2006\nselected_fg_color:#2d2006"
+# ═══════════════════════════════════════════════════════════════════════════
+# Ratel — GTK2 theme
+# ---------------------------------------------------------------------------
+# Legacy GTK2 applications cannot use the GTK3 stylesheet, so this file
+# reproduces the same palette with GTK2's colour scheme API. It stays
+# deliberately flat: no engine-specific drawing, so it renders identically
+# on every distro.
+# ═══════════════════════════════════════════════════════════════════════════
 
-style "default" {
-    GtkButton::default_border = {0,0,0,0}
-    GtkButton::default_outside_border = {0,0,0,0}
-    GtkButton::child_displacement_x = 1
-    GtkButton::child_displacement_y = 1
-    
-    base[NORMAL] = @base_color
-    base[PRELIGHT] = shade(1.1, @base_color)
-    base[SELECTED] = @selected_bg_color
-    base[INSENSITIVE] = shade(0.9, @base_color)
-    
-    bg[NORMAL] = @bg_color
-    bg[PRELIGHT] = shade(1.1, @bg_color)
-    bg[SELECTED] = @selected_bg_color
-    bg[INSENSITIVE] = shade(0.9, @bg_color)
-    
-    fg[NORMAL] = @fg_color
-    fg[PRELIGHT] = @fg_color
-    fg[SELECTED] = @selected_fg_color
-    fg[INSENSITIVE] = shade(0.7, @fg_color)
-    
-    text[NORMAL] = @text_color
-    text[PRELIGHT] = @text_color
-    text[SELECTED] = @selected_fg_color
-    text[INSENSITIVE] = shade(0.7, @text_color)
+gtk-color-scheme = "base_color:#12100b\nbg_color:#16120d\ntooltip_bg_color:#2b2217\ntooltip_fg_color:#f3ebdf\ntext_color:#f3ebdf\nfg_color:#f3ebdf\nselected_bg_color:#e6a92e\nselected_fg_color:#1a1409\ninsensitive_fg_color:#7d715f\ninsensitive_bg_color:#1b1712\n"
+
+style "ratel-default" {
+    xthickness = 1
+    ythickness = 1
+
+    fg[NORMAL]        = @fg_color
+    fg[PRELIGHT]      = @fg_color
+    fg[ACTIVE]        = @fg_color
+    fg[SELECTED]      = @selected_fg_color
+    fg[INSENSITIVE]   = @insensitive_fg_color
+
+    bg[NORMAL]        = @bg_color
+    bg[PRELIGHT]      = shade (1.12, @bg_color)
+    bg[ACTIVE]        = shade (0.92, @bg_color)
+    bg[SELECTED]      = @selected_bg_color
+    bg[INSENSITIVE]   = @insensitive_bg_color
+
+    base[NORMAL]      = @base_color
+    base[PRELIGHT]    = shade (1.08, @base_color)
+    base[ACTIVE]      = @selected_bg_color
+    base[SELECTED]    = @selected_bg_color
+    base[INSENSITIVE] = shade (1.15, @base_color)
+
+    text[NORMAL]      = @text_color
+    text[PRELIGHT]    = @text_color
+    text[ACTIVE]      = @selected_fg_color
+    text[SELECTED]    = @selected_fg_color
+    text[INSENSITIVE] = @insensitive_fg_color
+
+    GtkWidget::focus-line-width = 1
+    GtkWidget::focus-padding    = 0
+    GtkWidget::focus-line-pattern = "\1\1"
+    GtkWidget::interior-focus   = 1
+    GtkWidget::cursor-color     = @selected_bg_color
+    GtkWidget::secondary-cursor-color = @fg_color
 }
 
-class "GtkWidget" style "default"
+style "ratel-button" {
+    xthickness = 8
+    ythickness = 5
+
+    bg[NORMAL]      = shade (1.08, @bg_color)
+    bg[PRELIGHT]    = shade (1.22, @bg_color)
+    bg[ACTIVE]      = shade (0.9, @bg_color)
+    bg[INSENSITIVE] = @insensitive_bg_color
+
+    fg[NORMAL]      = @fg_color
+    fg[PRELIGHT]    = @fg_color
+    fg[ACTIVE]      = @fg_color
+    fg[INSENSITIVE] = @insensitive_fg_color
+}
+
+style "ratel-menu" {
+    xthickness = 4
+    ythickness = 4
+    bg[NORMAL] = shade (1.03, @bg_color)
+}
+
+style "ratel-menu-item" {
+    xthickness = 4
+    ythickness = 4
+    fg[NORMAL]   = @fg_color
+    fg[PRELIGHT] = @selected_fg_color
+    bg[PRELIGHT] = @selected_bg_color
+}
+
+style "ratel-tooltip" {
+    xthickness = 5
+    ythickness = 4
+    bg[NORMAL] = @tooltip_bg_color
+    fg[NORMAL] = @tooltip_fg_color
+}
+
+style "ratel-progress" {
+    xthickness = 1
+    ythickness = 1
+    bg[NORMAL] = shade (1.15, @base_color)
+    fg[NORMAL] = @selected_bg_color
+}
+
+style "ratel-entry" {
+    xthickness = 4
+    ythickness = 3
+    base[NORMAL]   = @base_color
+    base[SELECTED] = @selected_bg_color
+    text[NORMAL]   = @text_color
+    text[SELECTED] = @selected_fg_color
+}
+
+style "ratel-notebook" {
+    xthickness = 3
+    ythickness = 3
+    bg[NORMAL] = @bg_color
+    fg[NORMAL] = @fg_color
+}
+
+style "ratel-scrollbar" {
+    xthickness = 1
+    ythickness = 1
+    bg[NORMAL]   = shade (1.1, @bg_color)
+    bg[PRELIGHT] = @selected_bg_color
+}
+
+class "GtkWidget"      style "ratel-default"
+class "GtkButton"      style "ratel-button"
+class "GtkMenu"        style "ratel-menu"
+class "GtkMenuBar"     style "ratel-menu"
+class "GtkEntry"       style "ratel-entry"
+class "GtkProgressBar" style "ratel-progress"
+class "GtkNotebook"    style "ratel-notebook"
+class "GtkScrollbar"   style "ratel-scrollbar"
+
+widget_class "*<GtkMenuItem>*" style "ratel-menu-item"
+widget_class "*<GtkTooltip>*"  style "ratel-tooltip"
+
+gtk-menu-images      = 1
+gtk-button-images    = 1
+gtk-toolbar-style    = GTK_TOOLBAR_ICONS
+gtk-can-change-accels = 1

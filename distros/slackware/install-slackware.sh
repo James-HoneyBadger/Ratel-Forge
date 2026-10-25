@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Slackware Post-Install Script
+# Ratel Forge - Slackware Post-Install Script
 # Supports: Slackware Linux (14.2+, 15.0+, -current)
 
 set -euo pipefail
@@ -9,62 +9,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 
 hb_init_distro_log "slackware"
 
-# ── Package lists (slackpkg names) ──────────────────────────────────────────
-# Slackware has disk sets rather than individual packages; we install sets and extras
-declare -a BASE_SETS=(
-    "a" "ap" "l" "n"
-)
-
-declare -a DEVELOPER_SETS=(
-    "d" "tcl"
-)
-
-declare -a XFCE_SET=(
-    "xfce"
-)
-
-declare -a X_SET=(
-    "x"
-)
-
-# Extra packages beyond sets (via slackpkg or sbopkg)
-declare -a BASE_PACKAGES=(
-    "curl" "wget" "git" "unzip" "p7zip"
-    "htop" "tmux" "screen" "mc"
-    "ntfs-3g" "dosfstools" "gparted"
-    "rsync" "nmap" "openssh"
-    "inxi" "neofetch"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python3" "python-pip"
-    "nodejs" "npm"
-    "cmake" "ninja" "meson"
-    "gcc" "g++" "make" "gdb"
-    "autoconf" "automake" "libtool" "pkg-config"
-    "sqlite" "subversion"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4-terminal" "xfce4-screenshooter" "xfce4-taskmanager"
-    "xfce4-notifyd" "xfce4-power-manager"
-    "thunar" "thunar-volman"
-    "mousepad" "galculator" "xarchiver"
-    "network-manager-applet"
-    "ImageMagick" "ffmpeg"
-    "dejavu-fonts-ttf" "liberation-fonts-ttf"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "firefox" "chromium"
-    "libreoffice"
-    "gimp" "inkscape" "vlc" "audacity"
-    "thunderbird"
-)
+# ── Package lists ────────────────────────────────────────────────────────────
+# Data lives in config/packages/slackware.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/slackware.conf"
 
 # ── Banner ──────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Slackware" "Fearless Slackware Linux Setup"
+    hb_show_banner "Slackware" "Slackware provisioning"
 }
 
 # ── System check ────────────────────────────────────────────────────────────
@@ -77,6 +29,10 @@ check_slackware_system() {
 # ── slackpkg setup ──────────────────────────────────────────────────────────
 setup_slackpkg() {
     hb_next_step "Configuring slackpkg mirrors..."
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would configure slackpkg mirrors and refresh metadata"
+        return 0
+    fi
     # Ensure at least one mirror is uncommented in /etc/slackpkg/mirrors
     if ! grep -q '^[^#]' /etc/slackpkg/mirrors 2>/dev/null; then
         log_warning "No active mirrors in /etc/slackpkg/mirrors"
@@ -95,7 +51,7 @@ setup_slackpkg() {
     fi
     hb_sudo slackpkg update gpg 2>/dev/null || true
     hb_sudo slackpkg update
-    log_success "slackpkg configured"
+    hb_outcome "Would configure slackpkg" "slackpkg configured"
 }
 
 # ── System update ───────────────────────────────────────────────────────────
@@ -107,13 +63,17 @@ update_system() {
     else
         hb_sudo slackpkg upgrade-all || true
     fi
-    log_success "System updated"
+    hb_outcome "Would update system packages" "System updated"
 }
 
 # ── Disk set installation ───────────────────────────────────────────────────
 install_disk_sets() {
     local -n sets_ref=$1
     local set_type="$2"
+    if ! hb_component_allowed "$set_type"; then
+        log_info "Skipping $set_type (component disabled by --components)"
+        return 0
+    fi
     hb_next_step "Installing $set_type disk sets..."
     for disk_set in "${sets_ref[@]}"; do
         log_info "Installing disk set: $disk_set"
@@ -123,13 +83,17 @@ install_disk_sets() {
             hb_sudo slackpkg install-new "$disk_set" || true
         fi
     done
-    log_success "Installed $set_type disk sets"
+    hb_outcome "Would install $set_type disk sets" "Installed $set_type disk sets"
 }
 
 # ── Package installation ───────────────────────────────────────────────────
 install_slack_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -147,29 +111,29 @@ install_slack_packages() {
         if is_noninteractive; then
             if echo "Y" | hb_sudo slackpkg install "$package" 2>/dev/null; then
                 hb_json_add_package "$package"
-                ((installed++))
+                installed=$((installed + 1))
             else
                 # Try sbopkg if available
                 if command -v sbopkg >/dev/null 2>&1; then
                     if hb_sudo sbopkg -i "$package" -B 2>/dev/null; then
                         hb_json_add_package "$package"
-                        ((installed++))
+                        installed=$((installed + 1))
                     else
                         log_warning "Failed to install: $package"
-                        ((failed++))
+                        failed=$((failed + 1))
                     fi
                 else
                     log_warning "Failed to install: $package (sbopkg not available)"
-                    ((failed++))
+                    failed=$((failed + 1))
                 fi
             fi
         else
             if hb_sudo slackpkg install "$package" 2>/dev/null; then
                 hb_json_add_package "$package"
-                ((installed++))
+                installed=$((installed + 1))
             else
                 log_warning "Failed to install: $package"
-                ((failed++))
+                failed=$((failed + 1))
             fi
         fi
     done
@@ -177,13 +141,17 @@ install_slack_packages() {
         log_warning "Installed $installed $package_type packages ($failed failed)"
         hb_json_add_error "$failed $package_type packages failed"
     else
-        log_success "Installed $installed $package_type packages"
+        hb_outcome "Would install $installed $package_type packages" "Installed $installed $package_type packages"
     fi
 }
 
 # ── sbopkg setup ────────────────────────────────────────────────────────────
 setup_sbopkg() {
     hb_next_step "Setting up sbopkg (SlackBuilds.org package tool)..."
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would install sbopkg and sync its repository"
+        return 0
+    fi
     if command -v sbopkg >/dev/null 2>&1; then
         log_info "sbopkg already installed"
         hb_sudo sbopkg -r 2>/dev/null || true
@@ -202,7 +170,7 @@ setup_sbopkg() {
     local tmp_pkg
     tmp_pkg=$(mktemp /tmp/sbopkg.XXXXXX.tgz)
     hb_register_temp "$tmp_pkg"
-    if curl -fsSL "$sbopkg_url" -o "$tmp_pkg"; then
+    if hb_download "$sbopkg_url" "$tmp_pkg" "${HONEY_BADGER_SBOPKG_SHA256:-}"; then
         hb_sudo installpkg "$tmp_pkg"
         rm -f "$tmp_pkg"
         hb_sudo sbopkg -r 2>/dev/null || true
@@ -215,6 +183,11 @@ setup_sbopkg() {
 
 # ── XFCE setup (Slackware-specific) ────────────────────────────────────────
 setup_xfce_slackware() {
+    if ! hb_component_enabled desktop; then
+        log_info "Skipping setup_xfce_slackware (desktop component disabled)"
+        return 0
+    fi
+
     hb_next_step "Configuring XFCE desktop for Slackware..."
     # Install X11 and XFCE sets
     install_disk_sets X_SET "X Window System"
@@ -275,6 +248,11 @@ install_packages_by_type() {
 
 # ── Docker setup (Slackware-specific) ──────────────────────────────────────
 setup_docker_slackware() {
+    if ! hb_component_enabled dev; then
+        log_info "Skipping setup_docker_slackware (dev component disabled)"
+        return 0
+    fi
+
     hb_next_step "Setting up Docker for Slackware..."
     if ! command -v docker >/dev/null 2>&1; then
         log_info "Docker not found; attempting sbopkg install..."
@@ -298,37 +276,44 @@ setup_docker_slackware() {
 
 # ── Main ────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Slackware Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Slackware Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="slackware"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 14 ;;
-        developer) hb_set_total_steps 12 ;;
-        desktop) hb_set_total_steps 10 ;;
-        minimal) hb_set_total_steps 6 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 21 ;;
+            developer) hb_set_total_steps 20 ;;
+            desktop)   hb_set_total_steps 16 ;;
+            minimal)   hb_set_total_steps 7 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_slackware_system
-    setup_slackpkg
-    setup_sbopkg
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase slackpkg setup_slackpkg
+    hb_phase sbopkg setup_sbopkg
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo slackpkg update && sudo slackpkg upgrade-all" \
         "sudo slackpkg install" \
         "echo 'Manual cleanup recommended on Slackware'"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_docker_slackware
+        hb_phase dev setup_docker_slackware
     fi
     show_post_install
 }

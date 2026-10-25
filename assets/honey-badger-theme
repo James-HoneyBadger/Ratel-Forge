@@ -1,0 +1,174 @@
+#!/bin/bash
+# Ratel Forge Theme — inspect, apply, and preview the desktop theme (fallback copy)
+set -uo pipefail
+
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/install-info" ]] && source "$HB_SHARE/install-info"
+
+if [[ -r "$HB_SHARE/ui.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$HB_SHARE/ui.sh"
+else
+    HB_ACCENT='' HB_OK='' HB_WARN='' HB_ERR='' HB_MUTED='' HB_BOLD='' HB_NC=''
+    hb_rule() { printf '  %s\n' '──────────────────────────────────────────────────────'; }
+    hb_header() { printf '\n  RATEL FORGE  ·  %s\n' "$1"; hb_rule; }
+    hb_kv() { printf '  %-22s %s\n' "$1" "$2"; }
+    hb_ok() { printf '  ✔ %s\n' "$1"; }
+    hb_warn() { printf '  ▲ %s\n' "$1"; }
+    hb_err() { printf '  ✖ %s\n' "$1" >&2; }
+    hb_info() { printf '  • %s\n' "$1"; }
+fi
+
+usage() {
+    printf 'Usage: honey-badger-theme [command]\n\n'
+    printf 'Commands:\n'
+    printf '  status     Show the active theme, icons, and wallpaper (default)\n'
+    printf '  apply      Apply the Ratel theme to the current session\n'
+    printf '  list       List installed GTK themes\n'
+    printf '  palette    Print the Ratel palette\n'
+    printf '  --help     Show this message\n'
+}
+
+theme_paths() {
+    printf '%s\n' "$HOME/.themes/Ratel" "/usr/share/themes/Ratel"
+}
+
+current_gtk_theme() {
+    local ini="$HOME/.config/gtk-3.0/settings.ini"
+    if [[ -r "$ini" ]]; then
+        sed -n 's/^gtk-theme-name=//p' "$ini" | head -n1
+    elif command -v gsettings >/dev/null 2>&1; then
+        gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'"
+    fi
+}
+
+current_wallpaper() {
+    command -v xfconf-query >/dev/null 2>&1 || return 0
+    xfconf-query -c xfce4-desktop -l 2>/dev/null | grep -m1 'last-image$' | while IFS= read -r prop; do
+        xfconf-query -c xfce4-desktop -p "$prop" 2>/dev/null
+    done
+}
+
+show_status() {
+    hb_header "Theme status"
+    local found="no" gtk
+    if [[ -d "$HOME/.themes/Ratel" || -d /usr/share/themes/Ratel ]]; then
+        found="yes"
+    fi
+    gtk="$(current_gtk_theme)"
+    hb_kv "Ratel theme" "$found"
+    hb_kv "GTK theme" "${gtk:-unknown}"
+    hb_kv "Icon theme" "Ratel (inherits Adwaita/hicolor)"
+    hb_kv "Wallpaper" "$(current_wallpaper || printf 'unknown')"
+    hb_kv "Version" "v${HONEY_BADGER_VERSION:-unknown} \"${HONEY_BADGER_CODENAME:-}\""
+    hb_rule
+}
+
+apply_theme() {
+    local requested="${1:-}" theme="Ratel"
+    case "$requested" in
+        ""|default|dark)    theme="Ratel" ;;
+        high-contrast|hc)   theme="Ratel-HC" ;;
+        *)
+            hb_err "Unknown variant: $requested (use default or high-contrast)"
+            return 2
+            ;;
+    esac
+
+    local theme_dir="$HOME/.themes/$theme"
+    if [[ ! -d "$theme_dir" ]]; then
+        hb_err "$theme theme is not installed (expected $theme_dir)"
+        return 1
+    fi
+
+    local ini="$HOME/.config/gtk-3.0/settings.ini"
+    mkdir -p "$(dirname "$ini")"
+    if [[ -f "$ini" ]]; then
+        if grep -q '^gtk-theme-name=' "$ini"; then
+            sed -i "s/^gtk-theme-name=.*/gtk-theme-name=$theme/" "$ini"
+        else
+            printf 'gtk-theme-name=%s\n' "$theme" >>"$ini"
+        fi
+        if grep -q '^gtk-icon-theme-name=' "$ini"; then
+            sed -i 's/^gtk-icon-theme-name=.*/gtk-icon-theme-name=Ratel/' "$ini"
+        else
+            printf 'gtk-icon-theme-name=Ratel\n' >>"$ini"
+        fi
+    else
+        printf '[Settings]\ngtk-theme-name=%s\ngtk-icon-theme-name=Ratel\ngtk-application-prefer-dark-theme=1\n' "$theme" >"$ini"
+    fi
+
+    if command -v xfconf-query >/dev/null 2>&1; then
+        xfconf-query -c xsettings -p /Net/ThemeName -s "$theme" --create -t string 2>/dev/null || true
+        xfconf-query -c xsettings -p /Net/IconThemeName -s Ratel --create -t string 2>/dev/null || true
+
+        local wall="/usr/share/backgrounds/honeybadger.jpg"
+        if [[ -f "$wall" ]]; then
+            local prop
+            while IFS= read -r prop; do
+                [[ -n "$prop" ]] || continue
+                xfconf-query -c xfce4-desktop -p "$prop" -s "$wall" 2>/dev/null || true
+            done < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep 'last-image$' || true)
+        fi
+    fi
+
+    hb_ok "$theme applied"
+    hb_info "Log out and back in if a GTK2 application does not update"
+}
+
+list_themes() {
+    hb_header "Installed themes"
+    local dir
+    for base in "$HOME/.themes" /usr/share/themes; do
+        [[ -d "$base" ]] || continue
+        for dir in "$base"/*; do
+            [[ -d "$dir" ]] || continue
+            printf '  %s\n' "${dir##*/}"
+        done
+    done | sort -u
+    hb_rule
+}
+
+show_palette() {
+    if [[ -r "$HB_SHARE/palette.env" ]]; then
+        # shellcheck source=/dev/null
+        source "$HB_SHARE/palette.env"
+    else
+        # Built-in defaults so the fallback copy still renders a preview.
+        RATEL_BG="#16120d" RATEL_SURFACE="#201a14" RATEL_BASE="#12100b"
+        RATEL_BORDER="#3a3128" RATEL_TEXT="#f3ebdf" RATEL_MUTED_TEXT="#b8a992"
+        RATEL_ACCENT="#e6a92e" RATEL_ACCENT_TEXT="#1a1409"
+        RATEL_WARNING="#e9b44c" RATEL_ERROR="#e0685c"
+        RATEL_SUCCESS="#79b96f" RATEL_INFO="#6aa9e0"
+    fi
+
+    hb_header "Ratel palette"
+    local entry name varname hex r g b
+    for entry in \
+        "Background:RATEL_BG" "Surface:RATEL_SURFACE" "Base:RATEL_BASE" \
+        "Border:RATEL_BORDER" "Text:RATEL_TEXT" "Muted text:RATEL_MUTED_TEXT" \
+        "Accent:RATEL_ACCENT" "On accent:RATEL_ACCENT_TEXT" \
+        "Warning:RATEL_WARNING" "Error:RATEL_ERROR" \
+        "Success:RATEL_SUCCESS" "Info:RATEL_INFO"; do
+        name="${entry%%:*}"
+        varname="${entry#*:}"
+        hex="${!varname}"
+        r=$((16#${hex:1:2})); g=$((16#${hex:3:2})); b=$((16#${hex:5:2}))
+        printf '  \033[48;2;%d;%d;%dm      \033[0m  %-12s %s\n' "$r" "$g" "$b" "$name" "$hex"
+    done
+    hb_rule
+}
+
+case "${1:-status}" in
+    status)   show_status ;;
+    apply)    apply_theme "${2:-}" ;;
+    list)     list_themes ;;
+    palette)  show_palette ;;
+    --help|-h|help) usage ;;
+    *)
+        hb_err "Unknown command: $1"
+        usage >&2
+        exit 2
+        ;;
+esac

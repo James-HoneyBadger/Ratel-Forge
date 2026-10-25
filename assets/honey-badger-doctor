@@ -1,0 +1,130 @@
+#!/bin/bash
+# Ratel Forge Doctor — diagnose a Ratel Forge installation (fallback copy)
+set -uo pipefail
+
+HB_SHARE="${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger"
+# shellcheck source=/dev/null
+[[ -r "$HB_SHARE/install-info" ]] && source "$HB_SHARE/install-info"
+
+if [[ -r "$HB_SHARE/ui.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$HB_SHARE/ui.sh"
+else
+    HB_ACCENT='' HB_OK='' HB_WARN='' HB_ERR='' HB_MUTED='' HB_BOLD='' HB_NC=''
+    hb_rule() { printf '  %s\n' '──────────────────────────────────────────────────────'; }
+    hb_header() { printf '\n  RATEL FORGE  ·  %s\n' "$1"; hb_rule; }
+    hb_kv() { printf '  %-22s %s\n' "$1" "$2"; }
+    hb_ok() { printf '  ✔ %s\n' "$1"; }
+    hb_warn() { printf '  ▲ %s\n' "$1"; }
+    hb_err() { printf '  ✖ %s\n' "$1" >&2; }
+    hb_info() { printf '  • %s\n' "$1"; }
+fi
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    printf 'Usage: honey-badger-doctor\n\n'
+    printf 'Checks the theme, settings, utilities, and common runtime pitfalls.\n'
+    printf 'Exits non-zero when a hard failure is found.\n'
+    exit 0
+fi
+
+failures=0
+warnings=0
+
+ok()   { hb_ok "$1"; }
+warn() { hb_warn "$1"; warnings=$((warnings + 1)); }
+fail() { hb_err "$1"; failures=$((failures + 1)); }
+
+check_theme() {
+    if [[ -d "$HOME/.themes/Ratel" ]]; then
+        ok "GTK theme installed (user)"
+    elif [[ -d /usr/share/themes/Ratel ]]; then
+        warn "GTK theme installed system-wide only (no ~/.themes/Ratel)"
+    else
+        fail "Ratel GTK theme is not installed"
+    fi
+
+    if [[ -f "$HOME/.icons/Ratel/index.theme" ]]; then
+        ok "Icon theme descriptor present"
+    else
+        warn "Icon theme descriptor missing (~/.icons/Ratel/index.theme)"
+    fi
+
+    local ini="$HOME/.config/gtk-3.0/settings.ini"
+    if [[ -r "$ini" ]] && grep -q '^gtk-theme-name=Ratel' "$ini"; then
+        ok "GTK3 settings point at Ratel"
+    else
+        warn "GTK3 settings do not select Ratel (run honey-badger-theme apply)"
+    fi
+
+    if [[ -f "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml" ]]; then
+        ok "XFCE appearance channel present"
+    else
+        warn "XFCE appearance channel missing"
+    fi
+}
+
+check_utilities() {
+    local missing=0 cmd
+    for cmd in honey-badger-info honey-badger-update honey-badger-install; do
+        command -v "$cmd" >/dev/null 2>&1 || missing=$((missing + 1))
+    done
+    if [[ $missing -eq 0 ]]; then
+        ok "Utility commands are on PATH"
+    else
+        warn "$missing utility command(s) not on PATH (add ~/.local/bin)"
+    fi
+
+    if [[ -r "$HB_SHARE/install-info" ]]; then
+        ok "Install metadata present"
+    else
+        fail "Install metadata missing ($HB_SHARE/install-info)"
+    fi
+}
+
+check_runtime() {
+    if command -v git >/dev/null 2>&1; then
+        if git config --global user.email >/dev/null 2>&1; then
+            ok "Git identity configured"
+        else
+            warn "Git identity is not configured"
+        fi
+    else
+        warn "git is not installed"
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+            ok "Docker installed and user in docker group"
+        else
+            warn "Docker installed but user is not in the docker group"
+        fi
+    fi
+
+    if [[ -w "${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger" ]]; then
+        ok "Data directory is writable"
+    else
+        warn "Data directory is not writable"
+    fi
+
+    local pm
+    for pm in pacman apt-get dnf zypper xbps-install slackpkg emerge; do
+        if command -v "$pm" >/dev/null 2>&1; then
+            ok "Package manager: $pm"
+            return 0
+        fi
+    done
+    fail "No supported package manager found"
+}
+
+hb_header "Diagnostics"
+check_theme
+check_utilities
+check_runtime
+hb_rule
+printf '  %s failure(s), %s warning(s)\n' "$failures" "$warnings"
+
+if [[ $failures -gt 0 ]]; then
+    hb_err "Doctor found problems that need attention"
+    exit 1
+fi
+hb_ok "No blocking problems found"

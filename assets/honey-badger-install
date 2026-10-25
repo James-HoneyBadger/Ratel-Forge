@@ -1,50 +1,58 @@
 #!/bin/bash
-# Honey Badger OS - Package Install Helper
-# This is a fallback version; the live version is generated at install time in ~/.local/bin/
-
+# Ratel Forge — Package Installer (fallback copy; install.sh generates a distro-aware one)
 set -euo pipefail
 
-NC='\033[0m'; BOLD='\033[1m'; YELLOW='\033[0;33m'; GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'
-
-if [[ $# -eq 0 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
-    echo -e "${YELLOW}${BOLD}🦡 Honey Badger OS - Package Installer${NC}"
-    echo ""
-    echo "Usage: honey-badger-install <package1> [package2] ..."
-    echo ""
-    echo "Examples:"
-    echo "  honey-badger-install vim"
-    echo "  honey-badger-install firefox vlc gimp"
-    [[ $# -eq 0 ]] && exit 1
-    exit 0
+if [[ -n "${NO_COLOR:-}" || ! -t 1 ]]; then
+    ACCENT='' OK='' ERR='' MUTED='' BOLD='' NC=''
+else
+    ACCENT='\033[38;5;214m'; OK='\033[38;5;113m'; ERR='\033[38;5;203m'
+    MUTED='\033[38;5;245m'; BOLD='\033[1m'; NC='\033[0m'
 fi
 
-# Validate package names (alphanumeric, hyphens, dots, underscores, plus signs, colons)
+usage() {
+    printf 'Usage: honey-badger-install <package> [package...]\n\n'
+    printf 'Installs packages with the native package manager.\n'
+    printf 'Example: honey-badger-install firefox vlc gimp\n'
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+    exit 0
+fi
+if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 1
+fi
+
 for arg in "$@"; do
     if [[ ! "$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*$ ]]; then
-        echo -e "${RED}Invalid package name: $arg${NC}"
-        echo "Package names may only contain: letters, digits, dots, hyphens, underscores, plus signs"
+        printf '  %s✖%s Invalid package name: %s\n' "$ERR" "$NC" "$arg" >&2
+        printf '  Names may contain letters, digits, dots, hyphens, underscores, plus signs, and colons.\n' >&2
         exit 1
     fi
 done
 
-echo -e "${YELLOW}${BOLD}🦡 Installing: $*${NC}\n"
+printf '\n  %s%sRATEL FORGE%s  %s·%s  %sInstall packages%s\n' \
+    "$ACCENT" "$BOLD" "$NC" "$MUTED" "$NC" "$BOLD" "$NC"
+printf '  %s•%s %s\n\n' "$ACCENT" "$NC" "$*"
 
-# Detect package manager and install
 if command -v pacman >/dev/null 2>&1; then
     sudo pacman -S --noconfirm "$@"
 elif command -v apt-get >/dev/null 2>&1; then
     sudo apt-get install -y "$@"
 elif command -v dnf >/dev/null 2>&1; then
     sudo dnf install -y "$@"
-elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y "$@"
+elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper --non-interactive install "$@"
 elif command -v xbps-install >/dev/null 2>&1; then
     sudo xbps-install -y "$@"
 elif command -v slackpkg >/dev/null 2>&1; then
     for pkg in "$@"; do sudo slackpkg install "$pkg"; done
+elif command -v emerge >/dev/null 2>&1; then
+    sudo emerge --ask=n "$@"
 else
-    echo -e "${RED}No supported package manager found${NC}"
+    printf '  %s✖%s No supported package manager found\n' "$ERR" "$NC" >&2
     exit 1
 fi
 
-echo -e "\n${GREEN}${BOLD}Installation complete! 🦡${NC}"
+printf '\n  %s✔%s Packages installed\n\n' "$OK" "$NC"

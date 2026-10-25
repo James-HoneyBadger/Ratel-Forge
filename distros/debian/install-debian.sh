@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Debian/Ubuntu Post-Install Script
+# Ratel Forge - Debian/Ubuntu Post-Install Script
 # Supports: Debian, Ubuntu, Linux Mint, Pop!_OS, Elementary, Zorin
 
 set -euo pipefail
@@ -10,73 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "debian"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-declare -a BASE_PACKAGES=(
-    "build-essential" "curl" "wget" "git" "git-lfs" "unzip" "zip" "p7zip-full"
-    "htop" "neofetch" "tree" "tmux" "screen" "software-properties-common"
-    "network-manager" "network-manager-gnome" "wireless-tools" "wpasupplicant"
-    "openssh-client" "openssh-server" "rsync" "nmap" "wireshark"
-    "gparted" "ntfs-3g" "exfat-fuse" "dosfstools"
-    "pulseaudio" "pulseaudio-utils" "pavucontrol" "alsa-utils"
-    "fonts-dejavu" "fonts-liberation" "fonts-noto" "fonts-noto-color-emoji"
-    "fonts-roboto" "fonts-opensans"
-    "rar" "unrar" "cabextract" "lzip" "lunzip"
-    "apt-transport-https" "ca-certificates" "gnupg" "lsb-release"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python3" "python3-pip" "python3-venv" "python3-dev"
-    "nodejs" "npm"
-    "golang-go"
-    "rustc" "cargo"
-    "default-jdk" "default-jre"
-    "ruby" "ruby-dev" "rubygems"
-    "php" "composer"
-    "make" "cmake" "ninja-build" "meson"
-    "gcc" "g++" "clang" "gdb" "valgrind"
-    "docker.io" "docker-compose"
-    "postgresql-client" "mysql-client" "sqlite3" "redis-tools"
-    "gh" "git-delta"
-    "autoconf" "automake" "libtool" "pkg-config"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4" "xfce4-goodies" "lightdm" "lightdm-gtk-greeter"
-    "lightdm-gtk-greeter-settings"
-    "thunar" "thunar-volman" "thunar-archive-plugin" "thunar-media-tags-plugin"
-    "file-roller" "gvfs" "gvfs-backends" "gvfs-fuse"
-    "xfce4-taskmanager" "xfce4-systemload-plugin" "xfce4-cpugraph-plugin"
-    "xfce4-netload-plugin" "xfce4-diskperf-plugin" "xfce4-sensors-plugin"
-    "rofi" "dmenu" "xfce4-notifyd" "network-manager-gnome" "blueman"
-    "xfce4-screenshooter" "xfce4-power-manager" "xfce4-clipman-plugin"
-    "imagemagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "firefox" "chromium"
-    "libreoffice" "hunspell-en-us"
-    "gimp" "inkscape" "vlc" "audacity" "obs-studio"
-    "imagemagick" "ffmpeg"
-    "thunderbird" "telegram-desktop"
-    "galculator" "mousepad" "xarchiver"
-    "synaptic" "gdebi"
-    "gstreamer1.0-plugins-base" "gstreamer1.0-plugins-good" "gstreamer1.0-plugins-bad" "gstreamer1.0-plugins-ugly" "gstreamer1.0-libav"
-)
-
-declare -a SNAP_PACKAGES=(
-    "code --classic"
-    "postman"
-    "discord"
-    "slack --classic"
-)
-
-declare -a FLATPAK_PACKAGES=(
-    "com.github.tchx84.Flatseal"
-    "org.gnome.Calculator"
-)
+# Data lives in config/packages/debian.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/debian.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Debian/Ubuntu" "Fearless Debian-based Distribution Setup"
+    hb_show_banner "Debian/Ubuntu" "Debian-based provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -93,7 +33,7 @@ update_system() {
     hb_sudo apt update
     hb_sudo apt upgrade -y
     hb_sudo apt install -y software-properties-common apt-transport-https ca-certificates gnupg lsb-release
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Repository setup (secured) ──────────────────────────────────────────────
@@ -114,10 +54,20 @@ add_repositories() {
         local node_setup
         node_setup="$(mktemp)"
         hb_register_temp "$node_setup"
-        if curl -fsSL https://deb.nodesource.com/setup_lts.x -o "$node_setup"; then
-            hb_sudo bash "$node_setup"
+        if hb_download "https://deb.nodesource.com/setup_lts.x" "$node_setup" \
+            "${HONEY_BADGER_NODE_SETUP_SHA256:-}"; then
+            if [[ -s "$node_setup" ]]; then
+                if head -n1 "$node_setup" | grep -q '^#!.*bash'; then
+                    hb_sudo bash "$node_setup"
+                    hb_outcome "Would add the Node.js repository" "Node.js repository added"
+                else
+                    log_warning "Node.js setup script failed validation (not a shell script)"
+                    hb_json_add_error "Node.js setup script validation failed"
+                fi
+            else
+                log_info "[DRY-RUN] Would run the Node.js setup script"
+            fi
             rm -f "$node_setup"
-            log_success "Node.js repository added"
         else
             rm -f "$node_setup"
             log_warning "Failed to download Node.js setup script"
@@ -136,18 +86,42 @@ add_repositories() {
     esac
     local docker_codename
     docker_codename="$(lsb_release -cs 2>/dev/null)"
-    curl -fsSL "https://download.docker.com/linux/${distro_id}/gpg" | hb_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg 2>/dev/null || {
+    local docker_key_tmp
+    docker_key_tmp="$(mktemp)"
+    hb_register_temp "$docker_key_tmp"
+    if hb_download "https://download.docker.com/linux/${distro_id}/gpg" "$docker_key_tmp" \
+        "${HONEY_BADGER_DOCKER_GPG_SHA256:-}"; then
+        if [[ -s "$docker_key_tmp" ]]; then
+            hb_sudo gpg --batch --yes --dearmor \
+                -o /usr/share/keyrings/docker-archive-keyring.gpg \
+                <"$docker_key_tmp" 2>/dev/null || {
+                log_warning "Failed to dearmor the Docker GPG key"
+                hb_json_add_error "Docker GPG key import failed"
+            }
+        fi
+    else
         log_warning "Failed to download Docker GPG key for ${distro_id}"
         hb_json_add_error "Docker GPG key download failed"
-    }
+    fi
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/${distro_id} ${docker_codename} stable" | hb_sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
     # GitHub CLI repository
     log_info "Adding GitHub CLI repository..."
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | hb_sudo tee /usr/share/keyrings/githubcli-archive-keyring.gpg > /dev/null 2>&1 || {
+    local gh_key_tmp
+    gh_key_tmp="$(mktemp)"
+    hb_register_temp "$gh_key_tmp"
+    if hb_download "https://cli.github.com/packages/githubcli-archive-keyring.gpg" \
+        "$gh_key_tmp" "${HONEY_BADGER_GITHUB_CLI_KEY_SHA256:-}"; then
+        if [[ -s "$gh_key_tmp" ]]; then
+            hb_sudo cp "$gh_key_tmp" /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || {
+                log_warning "Failed to install the GitHub CLI keyring"
+                hb_json_add_error "GitHub CLI keyring install failed"
+            }
+        fi
+    else
         log_warning "Failed to download GitHub CLI GPG key"
         hb_json_add_error "GitHub CLI GPG key download failed"
-    }
+    fi
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | hb_sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
     # VS Code repository (if not using Snap)
@@ -156,21 +130,32 @@ add_repositories() {
         local gpg_tmp
         gpg_tmp="$(mktemp)"
         hb_register_temp "$gpg_tmp"
-        if wget -qO "$gpg_tmp" https://packages.microsoft.com/keys/microsoft.asc; then
-            gpg --batch --yes --dearmor < "$gpg_tmp" | hb_sudo tee /etc/apt/trusted.gpg.d/packages.microsoft.gpg > /dev/null
-            hb_sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+        if hb_download "https://packages.microsoft.com/keys/microsoft.asc" "$gpg_tmp" \
+            "${HONEY_BADGER_VSCODE_KEY_SHA256:-}"; then
+            if [[ -s "$gpg_tmp" ]]; then
+                gpg --batch --yes --dearmor <"$gpg_tmp" \
+                    | hb_sudo tee /etc/apt/trusted.gpg.d/packages.microsoft.gpg >/dev/null
+                hb_sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+            fi
+        else
+            log_warning "Failed to download the VS Code signing key"
+            hb_json_add_error "VS Code key download failed"
         fi
         rm -f "$gpg_tmp"
     fi
 
     hb_sudo apt update
-    log_success "Additional repositories added"
+    hb_outcome "Would add additional repositories" "Additional repositories added"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_apt_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -189,7 +174,7 @@ install_apt_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo apt install -y "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -202,6 +187,10 @@ install_apt_packages() {
 install_snap_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if ! command -v snap >/dev/null 2>&1; then
         log_info "Installing snapd..."
         hb_sudo apt install -y snapd
@@ -210,21 +199,20 @@ install_snap_packages() {
     if [[ ${#packages_ref[@]} -eq 0 ]]; then return 0; fi
     hb_next_step "Installing $package_type Snap packages..."
     for entry in "${packages_ref[@]}"; do
-        local package_name flags
-        package_name="$(echo "$entry" | awk '{print $1}')"
-        flags="$(echo "$entry" | awk '{$1=""; print}' | xargs)"
+        local package_name flags_str
+        local -a flags=()
+        package_name="${entry%% *}"
+        flags_str="${entry#"$package_name"}"
+        [[ -n "$flags_str" ]] && read -r -a flags <<< "$flags_str"
+
         if snap list "$package_name" >/dev/null 2>&1; then
             log_info "$package_name already installed"
+            continue
+        fi
+        if hb_sudo snap install "$package_name" ${flags[@]+"${flags[@]}"} 2>/dev/null; then
+            hb_json_add_package "snap:$package_name"
         else
-            if [[ -n "$flags" ]]; then
-                hb_sudo snap install "$package_name" $flags 2>/dev/null && \
-                    hb_json_add_package "snap:$package_name" || \
-                    log_warning "Failed to install snap $package_name"
-            else
-                hb_sudo snap install "$package_name" 2>/dev/null && \
-                    hb_json_add_package "snap:$package_name" || \
-                    log_warning "Failed to install snap $package_name"
-            fi
+            log_warning "Failed to install snap $package_name"
         fi
     done
 }
@@ -232,6 +220,10 @@ install_snap_packages() {
 install_flatpak_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if ! command -v flatpak >/dev/null 2>&1; then
         log_info "Installing Flatpak..."
         hb_sudo apt install -y flatpak
@@ -242,10 +234,12 @@ install_flatpak_packages() {
     for package in "${packages_ref[@]}"; do
         if flatpak list 2>/dev/null | grep -q "$package"; then
             log_info "$package already installed"
+            continue
+        fi
+        if hb_sudo flatpak install -y flathub "$package" 2>/dev/null; then
+            hb_json_add_package "flatpak:$package"
         else
-            hb_sudo flatpak install -y flathub "$package" 2>/dev/null && \
-                hb_json_add_package "flatpak:$package" || \
-                log_warning "Failed to install $package"
+            log_warning "Failed to install $package"
         fi
     done
 }
@@ -291,35 +285,42 @@ install_packages_by_type() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Debian/Ubuntu Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Debian/Ubuntu Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="debian"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 14 ;;
-        developer) hb_set_total_steps 11 ;;
-        desktop) hb_set_total_steps 10 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 16 ;;
+            developer) hb_set_total_steps 14 ;;
+            desktop)   hb_set_total_steps 11 ;;
+            minimal)   hb_set_total_steps 5 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_debian_system
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo apt update && sudo apt upgrade -y" \
         "sudo apt install -y" \
         "sudo apt autoremove -y && sudo apt autoclean"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_development_environment
+        hb_phase dev setup_development_environment
     fi
     show_post_install
 }

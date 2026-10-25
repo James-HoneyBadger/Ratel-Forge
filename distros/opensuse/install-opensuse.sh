@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - openSUSE Post-Install Script
+# Ratel Forge - openSUSE Post-Install Script
 # Supports: openSUSE Tumbleweed, openSUSE Leap, SLES, GeckoLinux
 
 set -euo pipefail
@@ -10,57 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "opensuse"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-declare -a BASE_PACKAGES=(
-    "curl" "wget" "git" "git-lfs" "unzip" "zip" "p7zip"
-    "htop" "neofetch" "tree" "tmux" "screen"
-    "NetworkManager" "NetworkManager-connection-editor" "wpa_supplicant"
-    "openssh" "rsync" "nmap"
-    "gparted" "ntfs-3g" "exfatprogs" "dosfstools"
-    "pulseaudio" "pulseaudio-utils" "pavucontrol" "alsa-utils"
-    "dejavu-fonts" "liberation-fonts" "noto-sans-fonts" "noto-coloremoji-fonts"
-    "google-roboto-fonts"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python3" "python3-pip" "python3-virtualenv"
-    "nodejs" "npm"
-    "go" "rust" "cargo"
-    "java-17-openjdk" "java-17-openjdk-devel"
-    "ruby" "rubygem-bundler"
-    "php8" "php8-cli"
-    "make" "cmake" "ninja" "meson"
-    "gcc" "gcc-c++" "clang" "gdb" "valgrind"
-    "docker" "docker-compose" "podman"
-    "postgresql" "mariadb" "sqlite3" "redis"
-    "neovim" "gh" "git-delta"
-    "autoconf" "automake" "libtool" "pkgconf"
-    "patterns-devel-base-devel_basis"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4-panel" "xfce4-session" "xfce4-settings" "xfce4-terminal"
-    "xfce4-appfinder" "xfce4-power-manager" "xfce4-screenshooter"
-    "xfce4-taskmanager" "xfce4-whiskermenu-plugin" "xfce4-clipman-plugin"
-    "xfce4-notifyd" "xfce4-pulseaudio-plugin"
-    "thunar" "thunar-volman" "thunar-plugin-archive"
-    "lightdm" "lightdm-gtk-greeter" "lightdm-gtk-greeter-settings"
-    "file-roller" "gvfs" "gvfs-backends"
-    "rofi" "dmenu" "blueman" "NetworkManager-applet"
-    "ImageMagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "MozillaFirefox" "chromium"
-    "libreoffice" "myspell-en_US"
-    "gimp" "inkscape" "vlc" "audacity"
-    "ImageMagick" "ffmpeg"
-    "MozillaThunderbird" "telegram-desktop"
-    "galculator" "mousepad" "xarchiver"
-)
+# Data lives in config/packages/opensuse.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/opensuse.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "openSUSE" "Fearless openSUSE-based Distribution Setup"
+    hb_show_banner "openSUSE" "openSUSE-based provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -76,13 +32,17 @@ update_system() {
     hb_next_step "Refreshing repositories and updating system..."
     hb_sudo zypper --non-interactive refresh
     hb_sudo zypper --non-interactive update
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_zypper_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -99,7 +59,7 @@ install_zypper_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo zypper --non-interactive install --no-confirm "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -133,7 +93,7 @@ setup_packman() {
             hb_sudo zypper ar -cfp 90 "$repo_url" packman 2>/dev/null || true
             hb_sudo zypper --non-interactive refresh 2>/dev/null || true
         fi
-        log_success "Packman repository configured"
+        hb_outcome "Would configure the Packman repository" "Packman repository configured"
     fi
 }
 
@@ -175,6 +135,11 @@ install_packages_by_type() {
 
 # ── Development tools (openSUSE-specific) ────────────────────────────────────
 setup_dev_opensuse() {
+    if ! hb_component_enabled dev; then
+        log_info "Skipping setup_dev_opensuse (dev component disabled)"
+        return 0
+    fi
+
     hb_next_step "Installing openSUSE development pattern..."
     hb_sudo zypper --non-interactive install -t pattern devel_basis 2>/dev/null || true
     setup_development_environment
@@ -182,35 +147,42 @@ setup_dev_opensuse() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - openSUSE Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - openSUSE Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="opensuse"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 13 ;;
-        developer) hb_set_total_steps 10 ;;
-        desktop) hb_set_total_steps 10 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 16 ;;
+            developer) hb_set_total_steps 14 ;;
+            desktop)   hb_set_total_steps 12 ;;
+            minimal)   hb_set_total_steps 4 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_opensuse_system
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo zypper --non-interactive update" \
         "sudo zypper --non-interactive install" \
         "sudo zypper --non-interactive clean --all"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_dev_opensuse
+        hb_phase dev setup_dev_opensuse
     fi
     show_post_install
 }

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Ratel Forge">
+  <title>Ratel Forge</title>
+  <defs>
+    <linearGradient id="honey" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0c46a"/>
+      <stop offset="1" stop-color="#e6a92e"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#16120d"/>
+  <path d="M128 30 L207 76 V164 L128 210 L49 164 V76 Z"
+        fill="none" stroke="url(#honey)" stroke-width="10" stroke-linejoin="round"/>
+  <text x="128" y="152" text-anchor="middle"
+        font-family="DejaVu Sans, Helvetica, Arial, sans-serif"
+        font-size="96" font-weight="700" fill="#f3ebdf">R</text>
+  <rect x="88" y="172" width="80" height="8" rx="4" fill="url(#honey)"/>
+</svg>

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/James-HoneyBadger/Ratel-Forge/schema/honeybadger-summary.schema.json",
+  "title": "Ratel Forge installation summary",
+  "description": "Machine-readable summary written by hb_json_write (default: /tmp/honeybadger-summary.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "honey_badger_version",
+    "distro",
+    "install_type",
+    "status",
+    "dry_run",
+    "start_time",
+    "end_time",
+    "packages_installed",
+    "configs_changed",
+    "errors"
+  ],
+  "properties": {
+    "honey_badger_version": {
+      "type": "string",
+      "description": "Installer version (identifier retained for compatibility)"
+    },
+    "distro": {
+      "type": "string",
+      "description": "Distribution family, e.g. arch, debian"
+    },
+    "install_type": {
+      "type": "string",
+      "enum": ["full", "developer", "desktop", "minimal", "unknown"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["success", "partial", "dry-run"],
+      "description": "partial means at least one non-fatal error was recorded"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "packages_installed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "configs_changed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

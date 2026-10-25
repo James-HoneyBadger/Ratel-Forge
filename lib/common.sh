@@ -1,64 +1,48 @@
 #!/bin/bash
-# Honey Badger OS - Shared Library
-# Common functions used across all distribution installers
+# shellcheck disable=SC2034  # Variables are consumed by the sourcing script
+# shellcheck disable=SC2088  # Tilde strings are human-readable labels, not paths
+set -euo pipefail
+
+# Ratel Forge - Shared library entry point
+# ---------------------------------------------------------------------------
+# Loads the UI layer, runtime configuration, and the desktop/utility layers,
+# then provides the core runtime: sudo wrapper, progress, locking, checkpoints,
+# rollback manifest, JSON summary, network checks, service management, and the
+# development-environment helpers.
 #
 # Source this file at the top of each distro script:
 #   source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
-#
-# shellcheck disable=SC2034  # Variables used by sourcing scripts
-
-set -euo pipefail
+# ---------------------------------------------------------------------------
 
 # Prevent double-sourcing
 [[ -n "${_HONEY_BADGER_COMMON_LOADED:-}" ]] && return 0
 readonly _HONEY_BADGER_COMMON_LOADED=1
 
-# ── NO_COLOR / --no-color support (https://no-color.org) ────────────────────
-# Disable colors when NO_COLOR is set, when not a TTY, or when --no-color is passed
-if [[ -n "${NO_COLOR:-}" ]] || [[ "${HONEY_BADGER_NO_COLOR:-0}" == "1" ]] || [[ ! -t 1 ]]; then
-    _HB_USE_COLOR=0
-else
-    _HB_USE_COLOR=1
-fi
-
-# ── Color definitions (individually guarded to handle partial inheritance) ─────
-if [[ "$_HB_USE_COLOR" == "1" ]]; then
-    [[ -z "${RED:-}" ]]     && RED='\033[0;31m'
-    [[ -z "${GREEN:-}" ]]   && GREEN='\033[0;32m'
-    [[ -z "${YELLOW:-}" ]]  && YELLOW='\033[0;33m'
-    [[ -z "${BLUE:-}" ]]    && BLUE='\033[0;34m'
-    [[ -z "${MAGENTA:-}" ]] && MAGENTA='\033[0;35m'
-    [[ -z "${CYAN:-}" ]]    && CYAN='\033[0;36m'
-    [[ -z "${WHITE:-}" ]]   && WHITE='\033[0;37m'
-    [[ -z "${BOLD:-}" ]]    && BOLD='\033[1m'
-    [[ -z "${NC:-}" ]]      && NC='\033[0m'
-else
-    # Guard against readonly variables from parent shells
-    readonly -p 2>/dev/null | grep -q ' RED=' || RED=''
-    readonly -p 2>/dev/null | grep -q ' GREEN=' || GREEN=''
-    readonly -p 2>/dev/null | grep -q ' YELLOW=' || YELLOW=''
-    readonly -p 2>/dev/null | grep -q ' BLUE=' || BLUE=''
-    readonly -p 2>/dev/null | grep -q ' MAGENTA=' || MAGENTA=''
-    readonly -p 2>/dev/null | grep -q ' CYAN=' || CYAN=''
-    readonly -p 2>/dev/null | grep -q ' WHITE=' || WHITE=''
-    readonly -p 2>/dev/null | grep -q ' BOLD=' || BOLD=''
-    readonly -p 2>/dev/null | grep -q ' NC=' || NC=''
-fi
-
-# ── Project root detection ───────────────────────────────────────────────────
+# ── Project root detection (needed to locate the layer modules) ─────────────
 if [[ -z "${HONEY_BADGER_ROOT:-}" ]]; then
     HONEY_BADGER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
+# ── UI layer (colours, glyphs, logging, prompts, banner) ─────────────────────
+# shellcheck source=lib/ui.sh
+source "$HONEY_BADGER_ROOT/lib/ui.sh"
+# shellcheck source=lib/packages.sh
+source "$HONEY_BADGER_ROOT/lib/packages.sh"
+
 # ── Source config file (with key validation) ────────────────────────────────
 _HB_VALID_CONFIG_KEYS=(
     HONEY_BADGER_VERSION HONEY_BADGER_CODENAME HONEY_BADGER_BUILD_DATE
-    HONEY_BADGER_THEME_PRIMARY HONEY_BADGER_THEME_SECONDARY
-    HONEY_BADGER_THEME_ACCENT HONEY_BADGER_THEME_BASE
+    HONEY_BADGER_THEME_BG HONEY_BADGER_THEME_SURFACE HONEY_BADGER_THEME_BASE
+    HONEY_BADGER_THEME_BORDER HONEY_BADGER_THEME_TEXT HONEY_BADGER_THEME_MUTED_TEXT
+    HONEY_BADGER_THEME_ACCENT HONEY_BADGER_THEME_ACCENT_TEXT
+    HONEY_BADGER_THEME_WARNING HONEY_BADGER_THEME_ERROR
+    HONEY_BADGER_THEME_SUCCESS HONEY_BADGER_THEME_INFO
+    HONEY_BADGER_FONT HONEY_BADGER_MONO_FONT HONEY_BADGER_THEME_VARIANT
     EDITOR VISUAL
     HONEY_BADGER_DEV_MODE
     HONEY_BADGER_SKIP_DOCKER HONEY_BADGER_SKIP_PYTHON
     HONEY_BADGER_SKIP_NODE HONEY_BADGER_SKIP_NANO HONEY_BADGER_SKIP_THEME
+    HONEY_BADGER_SKIP_GIT
     HONEY_BADGER_GIT_USERNAME HONEY_BADGER_GIT_EMAIL
     HONEY_BADGER_LOG_COUNT HONEY_BADGER_NETWORK_TIMEOUT
     HONEY_BADGER_MIN_DISK_GB HONEY_BADGER_WALLPAPER_SIZE
@@ -97,6 +81,7 @@ _hb_validate_config() {
 if [[ -f "$HONEY_BADGER_ROOT/config/honey-badger-os.conf" ]]; then
     if _hb_validate_config "$HONEY_BADGER_ROOT/config/honey-badger-os.conf"; then
         # shellcheck source=../config/honey-badger-os.conf
+        # shellcheck disable=SC1091  # resolved dynamically from HONEY_BADGER_ROOT
         source "$HONEY_BADGER_ROOT/config/honey-badger-os.conf"
     else
         echo "ERROR: Config file failed validation, using defaults" >&2
@@ -126,6 +111,7 @@ _HB_LOG_KEEP="${HONEY_BADGER_LOG_COUNT:-5}"
 
 # Rotate logs: keep last N runs
 _hb_rotate_logs() {
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     local log_dir="$1"
     local keep="${_HB_LOG_KEEP}"
     local -a old_logs=()
@@ -153,6 +139,11 @@ touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/honeybadger-install.log"
 hb_sudo() {
     if [[ "$HONEY_BADGER_DRY_RUN" == "1" ]]; then
         log_info "[DRY-RUN] sudo $*"
+        # Drain stdin so pipelines such as `cmd | hb_sudo tee file` do not
+        # die with SIGPIPE under `set -o pipefail`.
+        if [[ ! -t 0 ]]; then
+            cat >/dev/null 2>&1 || true
+        fi
         return 0
     fi
     sudo "$@"
@@ -169,46 +160,20 @@ hb_set_total_steps() {
 
 hb_next_step() {
     _HB_STEP_CURRENT=$((_HB_STEP_CURRENT + 1))
+    # Some flows add steps dynamically (AUR helpers, repositories). Keep the
+    # denominator honest instead of printing "[13/12]".
+    if [[ $_HB_STEP_TOTAL -gt 0 && $_HB_STEP_CURRENT -gt $_HB_STEP_TOTAL ]]; then
+        _HB_STEP_TOTAL=$_HB_STEP_CURRENT
+    fi
     local prefix=""
     if [[ $_HB_STEP_TOTAL -gt 0 ]]; then
         prefix="[${_HB_STEP_CURRENT}/${_HB_STEP_TOTAL}] "
+    elif [[ $_HB_STEP_CURRENT -gt 0 ]]; then
+        prefix="[${_HB_STEP_CURRENT}] "
     fi
     log_step "${prefix}$1"
 }
 
-# ── Logging functions ────────────────────────────────────────────────────────
-log_info() {
-    [[ "$HONEY_BADGER_VERBOSITY" -ge 1 ]] || return 0
-    echo -e "${CYAN}[INFO]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-log_success() {
-    [[ "$HONEY_BADGER_VERBOSITY" -ge 1 ]] || return 0
-    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-log_step() {
-    [[ "$HONEY_BADGER_VERBOSITY" -ge 1 ]] || return 0
-    echo -e "${BLUE}${BOLD}[STEP]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-log_debug() {
-    [[ "$HONEY_BADGER_VERBOSITY" -ge 2 ]] || return 0
-    echo -e "${MAGENTA}[DEBUG]${NC} $1" | tee -a "$LOG_FILE"
-}
-
-# ── Non-interactive helpers ──────────────────────────────────────────────────
-is_noninteractive() {
-    [[ "${HONEY_BADGER_NONINTERACTIVE:-0}" == "1" || "${CI:-}" == "true" ]]
-}
 
 # ── Lock file (prevent concurrent runs) ─────────────────────────────────────
 _HB_LOCK_FILE="/tmp/honeybadger-install.lock"
@@ -217,7 +182,7 @@ _HB_LOCK_FD=""
 hb_acquire_lock() {
     exec 9>"$_HB_LOCK_FILE"
     if ! flock -n 9; then
-        log_error "Another Honey Badger OS installation is already running."
+        log_error "Another Ratel Forge installation is already running."
         log_error "If this is wrong, remove $_HB_LOCK_FILE and try again."
         exit 1
     fi
@@ -267,6 +232,7 @@ trap 'log_error "Installation interrupted by user (Ctrl+C)"; log_info "Log file:
 # Back up a file before overwriting. Creates <file>.hb-backup if no backup exists yet.
 hb_backup_file() {
     local file="$1"
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     if [[ -f "$file" && ! -f "${file}.hb-backup" ]]; then
         cp "$file" "${file}.hb-backup"
         log_debug "Backed up $file -> ${file}.hb-backup"
@@ -307,15 +273,77 @@ hb_should_skip_step() {
     [[ $_HB_STEP_CURRENT -le $checkpoint_step ]]
 }
 
+# ── Phase-level resume ──────────────────────────────────────────────────────
+# Checkpoints record how far a run got; phases record which units of work
+# completed, so `--resume` can skip them safely on the next run.
+_HB_PHASE_FILE="${HOME}/.local/share/honey-badger/phases"
+
+hb_phases_reset() {
+    rm -f "$_HB_PHASE_FILE"
+}
+
+hb_phase_done() {
+    [[ -f "$_HB_PHASE_FILE" ]] || return 1
+    grep -Fxq "$1" "$_HB_PHASE_FILE" 2>/dev/null
+}
+
+hb_phase_mark_done() {
+    local id="$1"
+    hb_dry_run && return 0
+    mkdir -p "$(dirname "$_HB_PHASE_FILE")" 2>/dev/null || true
+    printf '%s\n' "$id" >>"$_HB_PHASE_FILE" 2>/dev/null || true
+}
+
+# Prepare resume state. Refuses to reuse state from a different distro or
+# install type, because the completed phases would not mean the same thing.
+hb_phases_init() {
+    local type="$1"
+    local distro="${HONEY_BADGER_DISTRO:-unknown}"
+    hb_dry_run && return 0
+
+    if [[ "${HONEY_BADGER_RESUME:-0}" == "1" && -f "$_HB_PHASE_FILE" ]]; then
+        if ! grep -Fxq "type:$type" "$_HB_PHASE_FILE" 2>/dev/null ||
+           ! grep -Fxq "distro:$distro" "$_HB_PHASE_FILE" 2>/dev/null; then
+            log_warning "Resume state is for a different distro/type; starting fresh"
+            rm -f "$_HB_PHASE_FILE"
+        fi
+    elif [[ "${HONEY_BADGER_RESUME:-0}" != "1" ]]; then
+        rm -f "$_HB_PHASE_FILE"
+    fi
+
+    if [[ ! -f "$_HB_PHASE_FILE" ]]; then
+        mkdir -p "$(dirname "$_HB_PHASE_FILE")" 2>/dev/null || true
+        {
+            printf 'type:%s\n' "$type"
+            printf 'distro:%s\n' "$distro"
+        } >"$_HB_PHASE_FILE" 2>/dev/null || true
+    fi
+}
+
+# hb_phase <id> <command> [args...]
+# Runs a phase unless it already completed in a resumed run, then records it.
+hb_phase() {
+    local id="$1"
+    shift
+    if [[ "${HONEY_BADGER_RESUME:-0}" == "1" ]] && hb_phase_done "$id"; then
+        log_info "Resume: skipping completed phase '$id'"
+        return 0
+    fi
+    "$@"
+    hb_phase_mark_done "$id"
+}
+
 # ── Rollback manifest ───────────────────────────────────────────────────────
 _HB_ROLLBACK_FILE="${HOME}/.local/share/honey-badger/rollback-manifest"
 
 hb_rollback_init() {
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     mkdir -p "$(dirname "$_HB_ROLLBACK_FILE")" 2>/dev/null || true
-    echo "# Honey Badger OS Rollback Manifest - $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_HB_ROLLBACK_FILE"
+    echo "# Ratel Forge Rollback Manifest - $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_HB_ROLLBACK_FILE"
 }
 
 hb_rollback_add_packages() {
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     local pm_type="$1"
     shift
     for pkg in "$@"; do
@@ -324,11 +352,64 @@ hb_rollback_add_packages() {
 }
 
 hb_rollback_add_file() {
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     echo "FILE:$1" >> "$_HB_ROLLBACK_FILE"
 }
 
 hb_rollback_add_group() {
+    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     echo "GROUP:$1:$2" >> "$_HB_ROLLBACK_FILE"
+}
+
+# ── Verified downloads ──────────────────────────────────────────────────────
+# hb_download <url> <dest> [sha256]
+# Fetches to a file, rejects empty responses, and verifies a SHA-256 when one
+# is supplied. Set HONEY_BADGER_REQUIRE_CHECKSUMS=1 to fail closed when callers
+# forget to pass one. In dry-run mode nothing is fetched.
+hb_download() {
+    local url="$1" dest="$2" expected="${3:-}"
+    local timeout="${HONEY_BADGER_NETWORK_TIMEOUT:-3}"
+
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would download $url"
+        return 0
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 2 --connect-timeout "$timeout" --max-time 120 \
+            "$url" -o "$dest" || { log_error "Download failed: $url"; return 1; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --timeout="$timeout" --tries=2 -O "$dest" "$url" \
+            || { log_error "Download failed: $url"; return 1; }
+    else
+        log_error "Neither curl nor wget is available"
+        return 1
+    fi
+
+    if [[ ! -s "$dest" ]]; then
+        log_error "Downloaded file is empty: $url"
+        rm -f "$dest"
+        return 1
+    fi
+
+    if [[ -n "$expected" ]]; then
+        local actual
+        actual="$(sha256sum "$dest" 2>/dev/null | awk '{print $1}')"
+        if [[ "$actual" != "$expected" ]]; then
+            log_error "Checksum mismatch for $url"
+            log_info "expected: $expected"
+            log_info "actual:   ${actual:-unavailable}"
+            rm -f "$dest"
+            return 1
+        fi
+        log_debug "Checksum verified: $url"
+    elif [[ "${HONEY_BADGER_REQUIRE_CHECKSUMS:-0}" == "1" ]]; then
+        log_error "No checksum supplied for $url (HONEY_BADGER_REQUIRE_CHECKSUMS=1)"
+        rm -f "$dest"
+        return 1
+    fi
+
+    return 0
 }
 
 # ── Network connectivity check ──────────────────────────────────────────────
@@ -364,29 +445,6 @@ hb_check_network() {
     return 1
 }
 
-# ── Unified banner display ──────────────────────────────────────────────────
-hb_show_banner() {
-    local distro_name="${1:-}"
-    local subtitle="${2:-Fearless Linux Configuration}"
-    echo -e "${BOLD}${YELLOW}"
-    echo "╔════════════════════════════════════════════════════════════╗"
-    echo "║           🦡  HONEY BADGER OS INSTALLER  🦡              ║"
-    if [[ -n "$distro_name" ]]; then
-        printf "║           %-42s ║\n" "$distro_name Edition"
-    fi
-    printf "║           %-42s ║\n" "$subtitle"
-    echo "║           Version: ${HONEY_BADGER_VERSION:-2.0.0}                              ║"
-    echo "╚════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
-}
-
-# ── Unified distro log initialization ───────────────────────────────────────
-hb_init_distro_log() {
-    local distro_name="${1:-unknown}"
-    LOG_FILE="${_HB_LOG_DIR}/honeybadger-${distro_name}-$(date +%Y%m%d-%H%M%S).log"
-    touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/honeybadger-${distro_name}-install.log"
-    log_debug "Distro log initialized: $LOG_FILE"
-}
 
 # ── Unified service enablement (cross-init-system) ─────────────────────────
 hb_enable_service() {
@@ -422,6 +480,47 @@ hb_enable_service() {
     log_warning "No supported init system found for enabling $service_name"
 }
 
+# ── Component selection ─────────────────────────────────────────────────────
+# Components describe package groups: base, dev, desktop, apps.
+# HONEY_BADGER_COMPONENTS is a comma-separated subset; unset means all.
+hb_component_enabled() {
+    local name="$1"
+    [[ -z "${HONEY_BADGER_COMPONENTS:-}" ]] && return 0
+    case ",${HONEY_BADGER_COMPONENTS}," in
+        *",$name,"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Map a package-group label ("developer", "basic desktop", …) to a component.
+hb_component_for_label() {
+    local label="${1,,}"
+    case "$label" in
+        *base*)                                 printf 'base' ;;
+        *developer*|*development*|*dev*)        printf 'dev' ;;
+        *desktop*|*xfce*)                       printf 'desktop' ;;
+        *application*|*snap*|*flatpak*|*aur*)   printf 'apps' ;;
+        *)                                      printf 'base' ;;
+    esac
+}
+
+hb_component_allowed() {
+    hb_component_enabled "$(hb_component_for_label "$1")"
+}
+
+# True when any skip flag or component filter is active, which makes the
+# static step budget inaccurate.
+hb_skip_active() {
+    [[ -n "${HONEY_BADGER_COMPONENTS:-}" ]] && return 0
+    local var
+    for var in HONEY_BADGER_SKIP_DOCKER HONEY_BADGER_SKIP_PYTHON \
+               HONEY_BADGER_SKIP_NODE HONEY_BADGER_SKIP_NANO \
+               HONEY_BADGER_SKIP_THEME HONEY_BADGER_SKIP_GIT; do
+        [[ "${!var:-0}" == "1" ]] && return 0
+    done
+    return 1
+}
+
 # ── Component skip flags ────────────────────────────────────────────────────
 hb_skip_component() {
     local component="$1"
@@ -433,6 +532,11 @@ hb_skip_component() {
 ensure_bashrc_line() {
     local line="$1"
     local bashrc="$HOME/.bashrc"
+
+    if [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY-RUN] Would ensure ~/.bashrc contains: $line"
+        return 0
+    fi
 
     touch "$bashrc"
     hb_backup_file "$bashrc"
@@ -464,6 +568,17 @@ hb_json_add_error() {
     _HB_JSON_ERRORS+=("$1")
 }
 
+# Escape a value for inclusion in a JSON string literal.
+_hb_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
 hb_json_write() {
     local output_file="${1:-/tmp/honeybadger-summary.json}"
     local end_time
@@ -474,33 +589,37 @@ hb_json_write() {
     # Build JSON arrays safely
     local pkgs_json="" p
     for p in "${_HB_JSON_PACKAGES_INSTALLED[@]+"${_HB_JSON_PACKAGES_INSTALLED[@]}"}"; do
-        pkgs_json="${pkgs_json}\"${p}\","
+        pkgs_json="${pkgs_json}\"$(_hb_json_escape "$p")\","
     done
     pkgs_json="[${pkgs_json%,}]"
 
     local configs_json="" c
     for c in "${_HB_JSON_CONFIGS_CHANGED[@]+"${_HB_JSON_CONFIGS_CHANGED[@]}"}"; do
-        configs_json="${configs_json}\"${c}\","
+        configs_json="${configs_json}\"$(_hb_json_escape "$c")\","
     done
     configs_json="[${configs_json%,}]"
 
     local errors_json="" e
     for e in "${_HB_JSON_ERRORS[@]+"${_HB_JSON_ERRORS[@]}"}"; do
-        errors_json="${errors_json}\"${e}\","
+        errors_json="${errors_json}\"$(_hb_json_escape "$e")\","
     done
     errors_json="[${errors_json%,}]"
 
-    local status="success"
-    if [[ ${#_HB_JSON_ERRORS[@]} -gt 0 ]]; then
+    local status="success" dry_run="false"
+    if [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]]; then
+        status="dry-run"
+        dry_run="true"
+    elif [[ ${#_HB_JSON_ERRORS[@]} -gt 0 ]]; then
         status="partial"
     fi
 
     cat > "$output_file" << ENDJSON
 {
-  "honey_badger_version": "${HONEY_BADGER_VERSION:-1.0.0}",
-  "distro": "${distro}",
-  "install_type": "${install_type}",
+  "honey_badger_version": "$(_hb_json_escape "${HONEY_BADGER_VERSION:-1.0.0}")",
+  "distro": "$(_hb_json_escape "$distro")",
+  "install_type": "$(_hb_json_escape "$install_type")",
   "status": "${status}",
+  "dry_run": ${dry_run},
   "start_time": "${_HB_JSON_START_TIME}",
   "end_time": "${end_time}",
   "packages_installed": ${pkgs_json},
@@ -511,212 +630,55 @@ ENDJSON
     log_info "Installation summary written to $output_file"
 }
 
-# ── Nano setup ───────────────────────────────────────────────────────────────
-setup_nano() {
-    hb_next_step "Setting up enhanced nano configuration..."
-
-    if hb_skip_component "nano"; then
-        log_info "Skipping nano setup (--skip-nano)"
-        return 0
-    fi
-
-    mkdir -p ~/.nano/backups
-
-    if [[ -f "$HONEY_BADGER_ROOT/config/nanorc" ]]; then
-        hb_backup_file "$HOME/.nanorc"
-        cp "$HONEY_BADGER_ROOT/config/nanorc" ~/.nanorc
-    else
-        log_warning "nanorc configuration file not found"
-    fi
-
-    ensure_bashrc_line 'export EDITOR=nano'
-    ensure_bashrc_line 'export VISUAL=nano'
-
-    hb_json_add_config "~/.nanorc"
-    log_success "Enhanced nano configuration installed"
-}
-
-# ── Theme setup ──────────────────────────────────────────────────────────────
-setup_honey_badger_theme() {
-    hb_next_step "Installing Honey Badger theme..."
-
-    local theme_dir="$HOME/.themes/HoneyBadger"
-    local icon_dir="$HOME/.icons/HoneyBadger"
-
-    mkdir -p "$theme_dir/gtk-2.0"
-    mkdir -p "$theme_dir/gtk-3.0"
-    mkdir -p "$icon_dir"
-
-    # Copy theme files from project
-    if [[ -f "$HONEY_BADGER_ROOT/theme/gtkrc-2.0" ]]; then
-        cp "$HONEY_BADGER_ROOT/theme/gtkrc-2.0" "$theme_dir/gtk-2.0/gtkrc"
-    else
-        log_warning "GTK2 theme file not found, generating..."
-        cat > "$theme_dir/gtk-2.0/gtkrc" << 'ENDGTK2'
-# Honey Badger GTK2 Theme
-gtk-color-scheme = "base_color:#2d2006\nbg_color:#8b6914\ntooltip_bg_color:#f5deb3\nselected_bg_color:#daa520\ntext_color:#f5deb3\nfg_color:#f5deb3\ntooltip_fg_color:#2d2006\nselected_fg_color:#2d2006"
-
-style "default" {
-    GtkButton::default_border = {0,0,0,0}
-    GtkButton::default_outside_border = {0,0,0,0}
-    GtkButton::child_displacement_x = 1
-    GtkButton::child_displacement_y = 1
-
-    base[NORMAL] = @base_color
-    base[PRELIGHT] = shade(1.1, @base_color)
-    base[SELECTED] = @selected_bg_color
-    base[INSENSITIVE] = shade(0.9, @base_color)
-
-    bg[NORMAL] = @bg_color
-    bg[PRELIGHT] = shade(1.1, @bg_color)
-    bg[SELECTED] = @selected_bg_color
-    bg[INSENSITIVE] = shade(0.9, @bg_color)
-
-    fg[NORMAL] = @fg_color
-    fg[PRELIGHT] = @fg_color
-    fg[SELECTED] = @selected_fg_color
-    fg[INSENSITIVE] = shade(0.7, @fg_color)
-
-    text[NORMAL] = @text_color
-    text[PRELIGHT] = @text_color
-    text[SELECTED] = @selected_fg_color
-    text[INSENSITIVE] = shade(0.7, @text_color)
-}
-
-class "GtkWidget" style "default"
-ENDGTK2
-    fi
-
-    if [[ -f "$HONEY_BADGER_ROOT/theme/honey-badger-theme.css" ]]; then
-        cp "$HONEY_BADGER_ROOT/theme/honey-badger-theme.css" "$theme_dir/gtk-3.0/gtk.css"
-    else
-        log_warning "GTK3 theme file not found"
-    fi
-
-    # Create theme index
-    cat > "$theme_dir/index.theme" << 'ENDINDEX'
-[Desktop Entry]
-Type=X-GNOME-Metatheme
-Name=HoneyBadger
-Comment=Honey Badger OS Theme
-Encoding=UTF-8
-
-[X-GNOME-Metatheme]
-GtkTheme=HoneyBadger
-MetacityTheme=HoneyBadger
-IconTheme=HoneyBadger
-ENDINDEX
-
-    hb_json_add_config "~/.themes/HoneyBadger"
-    log_success "Honey Badger theme installed"
-}
-
-# ── XFCE desktop configuration ──────────────────────────────────────────────
-setup_xfce() {
-    hb_next_step "Configuring XFCE desktop environment..."
-
-    # Enable display manager (systemd)
-    if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-enabled lightdm >/dev/null 2>&1; then
-            log_info "LightDM already enabled"
-        else
-            hb_sudo systemctl enable lightdm 2>/dev/null || true
-            log_success "LightDM display manager enabled"
-        fi
-    fi
-
-    # Configure LightDM greeter
-    hb_sudo mkdir -p /etc/lightdm
-    cat << 'ENDLIGHTDM' | hb_sudo tee /etc/lightdm/lightdm.conf >/dev/null
-[Seat:*]
-greeter-session=lightdm-gtk-greeter
-user-session=xfce
-
-[LightDM]
-minimum-uid=1000
-ENDLIGHTDM
-
-    cat << 'ENDGREETER' | hb_sudo tee /etc/lightdm/lightdm-gtk-greeter.conf >/dev/null
-[greeter]
-theme-name=HoneyBadger
-icon-theme-name=HoneyBadger
-font-name=Sans 11
-background=/usr/share/backgrounds/honeybadger.jpg
-ENDGREETER
-
-    hb_json_add_config "/etc/lightdm/lightdm.conf"
-    log_success "XFCE desktop configured"
-}
-
-# ── Wallpaper / assets ───────────────────────────────────────────────────────
-install_assets() {
-    hb_next_step "Installing Honey Badger assets..."
-
-    local wallpaper_dir="/usr/share/backgrounds"
-    local wallpaper_size="${HONEY_BADGER_WALLPAPER_SIZE:-1920x1080}"
-    hb_sudo mkdir -p "$wallpaper_dir"
-    mkdir -p "$HOME/.local/share/icons"
-
-    # Generate wallpaper safely (no eval)
-    if command -v convert >/dev/null 2>&1; then
-        local tmp_wallpaper
-        tmp_wallpaper="$(mktemp /tmp/honeybadger-wallpaper.XXXXXX.jpg)"
-        hb_register_temp "$tmp_wallpaper"
-        if convert -size "$wallpaper_size" "gradient:#2d2006-#8b6914" \
-            -font DejaVu-Sans-Bold -pointsize 72 -fill "#f5deb3" \
-            -gravity center -annotate +0-100 "HONEY BADGER OS" \
-            -pointsize 24 -annotate +0+50 "Fearless - Determined - Uncompromising" \
-            "$tmp_wallpaper" 2>/dev/null && [[ -s "$tmp_wallpaper" ]]; then
-            hb_sudo cp "$tmp_wallpaper" "$wallpaper_dir/honeybadger.jpg"
-            log_success "Generated Honey Badger wallpaper (${wallpaper_size})"
-        else
-            log_warning "ImageMagick wallpaper generation failed or produced empty file"
-            log_info "You can set a wallpaper manually at $wallpaper_dir/honeybadger.jpg"
-        fi
-    else
-        log_info "ImageMagick not available, skipping wallpaper generation"
-        log_info "Install ImageMagick and re-run, or set a wallpaper manually"
-    fi
-
-    log_success "Assets installed"
-}
 
 # ── Git configuration ────────────────────────────────────────────────────────
 setup_git() {
     hb_next_step "Configuring Git..."
 
-    if git config --global user.name >/dev/null 2>&1; then
-        log_info "Git already configured"
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would configure the Git identity"
         return 0
     fi
 
-    if is_noninteractive; then
-        local git_username="${HONEY_BADGER_GIT_USERNAME:-}"
-        local git_email="${HONEY_BADGER_GIT_EMAIL:-}"
-
-        if [[ -n "$git_username" && -n "$git_email" ]]; then
-            git config --global user.name "$git_username"
-            git config --global user.email "$git_email"
-            git config --global init.defaultBranch main
-            log_success "Git configured from environment variables"
-        else
-            log_warning "Skipping Git identity setup in non-interactive mode"
-            log_info "Set HONEY_BADGER_GIT_USERNAME and HONEY_BADGER_GIT_EMAIL to configure automatically"
-        fi
-    else
-        log_info "Git configuration needed. Please set up your Git identity:"
-        echo -n "Enter your Git username: "
-        read -r git_username
-        echo -n "Enter your Git email: "
-        read -r git_email
-
-        git config --global user.name "$git_username"
-        git config --global user.email "$git_email"
-        git config --global init.defaultBranch main
-        log_success "Git configured"
+    if hb_skip_component "git"; then
+        log_info "Skipping Git configuration (--skip-git)"
+        return 0
     fi
 
+    if git config --global user.name >/dev/null 2>&1; then
+        log_info "Git identity already configured"
+        return 0
+    fi
+
+    local git_username="" git_email=""
+    if is_noninteractive; then
+        git_username="${HONEY_BADGER_GIT_USERNAME:-}"
+        git_email="${HONEY_BADGER_GIT_EMAIL:-}"
+        if [[ -z "$git_username" || -z "$git_email" ]]; then
+            log_warning "Skipping Git identity setup in non-interactive mode"
+            log_info "Set HONEY_BADGER_GIT_USERNAME and HONEY_BADGER_GIT_EMAIL to configure automatically"
+            return 0
+        fi
+    else
+        git_username="$(hb_prompt "Git user name")"
+        git_email="$(hb_prompt "Git email")"
+        if [[ -z "$git_username" || -z "$git_email" ]]; then
+            log_warning "Git identity left unset (empty input)"
+            return 0
+        fi
+        if [[ ! "$git_email" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+            log_warning "That does not look like an email address; skipping Git configuration"
+            return 0
+        fi
+    fi
+
+    git config --global user.name "$git_username"
+    git config --global user.email "$git_email"
+    git config --global init.defaultBranch main
+    git config --global pull.rebase false
+
     hb_json_add_config "~/.gitconfig"
+    log_success "Git identity configured"
 }
 
 # ── Docker setup (with privilege warning) ────────────────────────────────────
@@ -725,6 +687,11 @@ setup_docker() {
 
     if hb_skip_component "docker"; then
         log_info "Skipping Docker setup (--skip-docker)"
+        return 0
+    fi
+
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would enable Docker and add the user to its group"
         return 0
     fi
 
@@ -759,6 +726,11 @@ setup_python_dev() {
         return 0
     fi
 
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would install pip, setuptools, wheel, and pipx"
+        return 0
+    fi
+
     local python_cmd=""
     if command -v python3 >/dev/null 2>&1; then
         python_cmd="python3"
@@ -781,6 +753,11 @@ setup_node_dev() {
         return 0
     fi
 
+    if hb_dry_run; then
+        log_info "[DRY-RUN] Would configure the npm prefix and global tools"
+        return 0
+    fi
+
     if ! command -v npm >/dev/null 2>&1; then
         log_warning "npm not found, skipping Node.js dev setup"
         return 0
@@ -798,6 +775,11 @@ setup_node_dev() {
 # ── Development environment orchestrator ─────────────────────────────────────
 setup_development_environment() {
     hb_next_step "Setting up development environment..."
+
+    if ! hb_component_enabled dev; then
+        log_info "Skipping development environment (dev component disabled)"
+        return 0
+    fi
     setup_git
     setup_docker
     setup_python_dev
@@ -805,138 +787,9 @@ setup_development_environment() {
     log_success "Development environment setup completed"
 }
 
-# ── Utility script creation ──────────────────────────────────────────────────
-# Creates distro-aware utility scripts. Caller must pass the package manager
-# commands as arguments.
-#   create_utility_scripts <pm_update_cmd> <pm_install_cmd> <pm_clean_cmd>
-# E.g.: create_utility_scripts "sudo pacman -Syu --noconfirm" "sudo pacman -S --noconfirm" "sudo pacman -Sc --noconfirm"
-create_utility_scripts() {
-    local pm_update_cmd="${1:-echo 'No package manager update command configured'}"
-    local pm_install_cmd="${2:-echo 'No package manager install command configured'}"
-    local pm_clean_cmd="${3:-echo 'No package manager clean command configured'}"
 
-    hb_next_step "Creating Honey Badger utility scripts..."
-
-    local bin_dir="$HOME/.local/bin"
-    mkdir -p "$bin_dir"
-    ensure_bashrc_line "export PATH=\"\$HOME/.local/bin:\$PATH\""
-
-    # ── honey-badger-info ──
-    cat > "$bin_dir/honey-badger-info" << 'EOF'
-#!/bin/bash
-# Honey Badger OS System Information
-echo -e "\033[1;33m🦡 Honey Badger OS System Information 🦡\033[0m"
-echo "=================================================="
-echo "Hostname:    $(hostname)"
-echo "User:        $(whoami)"
-if [[ -f /etc/os-release ]]; then
-    # shellcheck source=/dev/null
-    source /etc/os-release
-    echo "OS:          ${PRETTY_NAME:-Unknown}"
-else
-    echo "OS:          $(uname -o)"
-fi
-echo "Kernel:      $(uname -r)"
-echo "Architecture:$(uname -m)"
-echo "Uptime:      $(uptime -p 2>/dev/null || uptime)"
-echo "Memory:      $(free -h 2>/dev/null | awk '/^Mem:/ {print $3"/"$2}' || echo 'N/A')"
-echo "Disk Usage:  $(df -h / | awk 'NR==2 {print $3"/"$2" ("$5" used)"}')"
-echo "Desktop:     ${XDG_CURRENT_DESKTOP:-None}"
-echo "Shell:       ${SHELL##*/}"
-echo "Editor:      ${EDITOR:-Not set}"
-echo "HB Version:  ${HONEY_BADGER_VERSION:-1.0.0}"
-echo "=================================================="
-echo -e "\033[1;32mHoney badger don't care, honey badger don't give a shit!\033[0m"
-EOF
-
-    # ── honey-badger-update ──
-    cat > "$bin_dir/honey-badger-update" << ENDUPDATE
-#!/bin/bash
-# Honey Badger OS System Update Script
-set -euo pipefail
-
-echo -e "\033[1;33m🦡 Honey Badger OS System Update 🦡\033[0m"
-
-echo "Updating system packages..."
-${pm_update_cmd}
-
-# Update Snap packages if available
-if command -v snap >/dev/null 2>&1; then
-    echo "Updating Snap packages..."
-    sudo snap refresh || true
-fi
-
-# Update Flatpak packages if available
-if command -v flatpak >/dev/null 2>&1; then
-    echo "Updating Flatpak packages..."
-    sudo flatpak update -y || true
-fi
-
-echo "Cleaning package cache..."
-${pm_clean_cmd}
-
-echo -e "\033[1;32m🦡 System update completed! 🦡\033[0m"
-ENDUPDATE
-
-    # ── honey-badger-install ──
-    cat > "$bin_dir/honey-badger-install" << ENDINSTALL
-#!/bin/bash
-# Honey Badger OS Package Install Script
-set -euo pipefail
-
-if [[ \$# -eq 0 ]]; then
-    echo "Usage: honey-badger-install <package1> [package2] ..."
-    exit 1
-fi
-
-# Validate package names (alphanumeric, hyphens, dots, underscores, plus signs)
-for arg in "\$@"; do
-    if [[ ! "\$arg" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+:-]*\$ ]]; then
-        echo -e "\033[0;31mInvalid package name: \$arg\033[0m"
-        echo "Package names may only contain: letters, digits, dots, hyphens, underscores, plus signs"
-        exit 1
-    fi
-done
-
-echo -e "\033[1;33m🦡 Installing packages: \$* 🦡\033[0m"
-
-if ${pm_install_cmd} "\$@"; then
-    echo -e "\033[1;32m🦡 Packages installed successfully! 🦡\033[0m"
-else
-    echo -e "\033[1;31mFailed to install packages\033[0m"
-    exit 1
-fi
-ENDINSTALL
-
-    chmod 755 "$bin_dir/honey-badger-info" "$bin_dir/honey-badger-update" "$bin_dir/honey-badger-install"
-
-    hb_json_add_config "~/.local/bin/honey-badger-*"
-    log_success "Utility scripts created in $bin_dir"
-}
-
-# ── Post-install summary ────────────────────────────────────────────────────
-show_post_install() {
-    local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-
-    echo "" | tee -a "$LOG_FILE"
-    log_success "Honey Badger OS installation completed!"
-    echo -e "${BOLD}${YELLOW}🦡 Like the honey badger, you're now fearless and ready for anything! 🦡${NC}" | tee -a "$LOG_FILE"
-
-    if [[ "$install_type" != "minimal" ]]; then
-        echo -e "${CYAN}Reboot your system to start using the new desktop environment:${NC}" | tee -a "$LOG_FILE"
-        echo -e "${YELLOW}sudo reboot${NC}" | tee -a "$LOG_FILE"
-    else
-        echo -e "${CYAN}Restart your terminal or run: source ~/.bashrc${NC}" | tee -a "$LOG_FILE"
-    fi
-
-    echo "" | tee -a "$LOG_FILE"
-    echo -e "${CYAN}Available commands:${NC}" | tee -a "$LOG_FILE"
-    echo "  • honey-badger-info    - Display system information" | tee -a "$LOG_FILE"
-    echo "  • honey-badger-update  - Update system and packages" | tee -a "$LOG_FILE"
-    echo "  • honey-badger-install - Install additional packages" | tee -a "$LOG_FILE"
-    echo "" | tee -a "$LOG_FILE"
-    echo -e "${CYAN}Installation log:${NC} $LOG_FILE" | tee -a "$LOG_FILE"
-
-    # Write JSON summary if available
-    hb_json_write
-}
+# ── Desktop and utility layers ───────────────────────────────────────────────
+# shellcheck source=lib/theme.sh
+source "$HONEY_BADGER_ROOT/lib/theme.sh"
+# shellcheck source=lib/utilities.sh
+source "$HONEY_BADGER_ROOT/lib/utilities.sh"

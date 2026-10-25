@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Void Linux Post-Install Script
+# Ratel Forge - Void Linux Post-Install Script
 # Supports: Void Linux (glibc and musl)
 
 set -euo pipefail
@@ -10,54 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "void"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-declare -a BASE_PACKAGES=(
-    "base-devel" "curl" "wget" "git" "git-lfs" "unzip" "zip" "p7zip"
-    "htop" "neofetch" "tree" "tmux" "screen"
-    "NetworkManager" "wpa_supplicant"
-    "openssh" "rsync" "nmap"
-    "gparted" "ntfs-3g" "exfatprogs" "dosfstools"
-    "pulseaudio" "pavucontrol" "alsa-utils"
-    "dejavu-fonts-ttf" "liberation-fonts-ttf" "noto-fonts-ttf" "noto-fonts-emoji"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "python3" "python3-pip"
-    "nodejs" "npm"
-    "go" "rust" "cargo"
-    "openjdk17" "openjdk17-jre"
-    "ruby"
-    "make" "cmake" "ninja" "meson"
-    "gcc" "clang" "gdb" "valgrind"
-    "docker" "docker-compose"
-    "postgresql-client" "sqlite" "redis"
-    "neovim"
-    "autoconf" "automake" "libtool" "pkg-config"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce4" "xfce4-plugins" "xfce4-terminal" "xfce4-screenshooter"
-    "xfce4-taskmanager" "xfce4-clipman-plugin" "xfce4-pulseaudio-plugin"
-    "xfce4-whiskermenu-plugin" "xfce4-notifyd" "xfce4-power-manager"
-    "thunar" "thunar-volman" "thunar-archive-plugin"
-    "lightdm" "lightdm-gtk3-greeter"
-    "file-roller" "gvfs" "gvfs-smb" "gvfs-mtp"
-    "rofi" "dmenu" "blueman" "network-manager-applet"
-    "ImageMagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "firefox" "chromium"
-    "libreoffice" "hunspell" "hunspell-en_US"
-    "gimp" "inkscape" "vlc" "audacity"
-    "ImageMagick" "ffmpeg"
-    "thunderbird" "telegram-desktop"
-    "galculator" "mousepad" "xarchiver"
-    "gstreamer1" "gst-plugins-base1" "gst-plugins-good1" "gst-plugins-bad1" "gst-plugins-ugly1" "gst-libav"
-)
+# Data lives in config/packages/void.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/void.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Void Linux" "Fearless Void Linux Distribution Setup"
+    hb_show_banner "Void Linux" "Void Linux provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -72,13 +31,17 @@ check_void_system() {
 update_system() {
     hb_next_step "Updating system packages..."
     hb_sudo xbps-install -Syu
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_xbps_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -95,7 +58,7 @@ install_xbps_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo xbps-install -y "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -165,6 +128,11 @@ install_packages_by_type() {
 
 # ── Docker setup (Void-specific with runit) ─────────────────────────────────
 setup_docker_void() {
+    if ! hb_component_enabled dev; then
+        log_info "Skipping setup_docker_void (dev component disabled)"
+        return 0
+    fi
+
     if command -v docker >/dev/null 2>&1; then
         enable_runit_service "docker"
     fi
@@ -173,35 +141,42 @@ setup_docker_void() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Void Linux Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Void Linux Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="void"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 12 ;;
-        developer) hb_set_total_steps 10 ;;
-        desktop) hb_set_total_steps 9 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 14 ;;
+            developer) hb_set_total_steps 13 ;;
+            desktop)   hb_set_total_steps 11 ;;
+            minimal)   hb_set_total_steps 4 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_void_system
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo xbps-install -Syu" \
         "sudo xbps-install -y" \
         "sudo xbps-remove -Oo"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_docker_void
+        hb_phase dev setup_docker_void
     fi
     show_post_install
 }

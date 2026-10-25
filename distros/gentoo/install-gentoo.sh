@@ -1,5 +1,5 @@
 #!/bin/bash
-# Honey Badger OS - Gentoo Post-Install Script
+# Ratel Forge - Gentoo Post-Install Script
 # Supports: Gentoo Linux, Funtoo
 
 set -euo pipefail
@@ -10,63 +10,13 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 hb_init_distro_log "gentoo"
 
 # ── Package lists ────────────────────────────────────────────────────────────
-# Gentoo uses category/package format
-declare -a BASE_PACKAGES=(
-    "net-misc/curl" "net-misc/wget" "dev-vcs/git" "app-arch/unzip" "app-arch/zip"
-    "app-arch/p7zip"
-    "sys-process/htop" "app-misc/neofetch" "app-text/tree" "app-misc/tmux"
-    "app-misc/screen"
-    "net-misc/networkmanager" "net-wireless/wpa_supplicant"
-    "net-misc/openssh" "net-misc/rsync" "net-analyzer/nmap"
-    "sys-block/gparted" "sys-fs/ntfs3g" "sys-fs/exfatprogs" "sys-fs/dosfstools"
-    "media-sound/pulseaudio" "media-sound/pavucontrol" "media-sound/alsa-utils"
-    "media-fonts/dejavu" "media-fonts/liberation-fonts" "media-fonts/noto"
-    "media-fonts/noto-emoji" "media-fonts/roboto"
-)
-
-declare -a DEVELOPER_PACKAGES=(
-    "dev-lang/python" "dev-python/pip" "dev-python/virtualenv"
-    "net-libs/nodejs"
-    "dev-lang/go" "dev-lang/rust"
-    "virtual/jdk"
-    "dev-lang/ruby" "dev-ruby/rubygems"
-    "dev-lang/php"
-    "dev-build/make" "dev-build/cmake" "dev-build/ninja" "dev-build/meson"
-    "sys-devel/gcc" "sys-devel/clang" "dev-debug/gdb" "dev-debug/valgrind"
-    "app-containers/docker" "app-containers/docker-compose"
-    "dev-db/postgresql" "dev-db/mariadb" "dev-db/sqlite" "dev-db/redis"
-    "app-editors/neovim"
-    "dev-build/autoconf" "dev-build/automake" "dev-build/libtool"
-)
-
-declare -a DESKTOP_PACKAGES=(
-    "xfce-base/xfce4-meta" "xfce-extra/xfce4-taskmanager"
-    "xfce-extra/xfce4-screenshooter" "xfce-extra/xfce4-whiskermenu-plugin"
-    "xfce-extra/xfce4-clipman-plugin" "xfce-extra/xfce4-notifyd"
-    "xfce-extra/xfce4-pulseaudio-plugin" "xfce-extra/xfce4-power-manager"
-    "xfce-extra/thunar-volman" "xfce-extra/thunar-archive-plugin"
-    "x11-misc/lightdm" "x11-misc/lightdm-gtk-greeter"
-    "app-arch/file-roller" "gnome-base/gvfs"
-    "x11-misc/rofi" "x11-misc/dmenu"
-    "net-wireless/blueman" "gnome-extra/nm-applet"
-    "media-gfx/imagemagick"
-)
-
-declare -a APPLICATIONS_PACKAGES=(
-    "www-client/firefox" "www-client/chromium"
-    "app-office/libreoffice"
-    "media-gfx/gimp" "media-gfx/inkscape" "media-video/vlc"
-    "media-sound/audacity"
-    "media-gfx/imagemagick" "media-video/ffmpeg"
-    "mail-client/thunderbird"
-    "sci-calculators/galculator" "app-editors/mousepad" "app-arch/xarchiver"
-    "media-libs/gstreamer" "media-libs/gst-plugins-base" "media-libs/gst-plugins-good"
-    "media-libs/gst-plugins-bad" "media-libs/gst-plugins-ugly" "media-plugins/gst-plugins-libav"
-)
+# Data lives in config/packages/gentoo.conf so package changes are reviewable
+# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/gentoo.conf"
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
-    hb_show_banner "Gentoo" "Fearless Gentoo-based Distribution Setup"
+    hb_show_banner "Gentoo" "Gentoo-based provisioning"
 }
 
 # ── System check ─────────────────────────────────────────────────────────────
@@ -82,13 +32,17 @@ update_system() {
     hb_next_step "Syncing Portage tree and updating system..."
     hb_sudo emerge --sync --quiet
     hb_sudo emerge --update --deep --newuse @world --quiet || true
-    log_success "System updated successfully"
+    hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Package installation ────────────────────────────────────────────────────
 install_emerge_packages() {
     local -n packages_ref=$1
     local package_type="$2"
+    if ! hb_component_allowed "$package_type"; then
+        log_info "Skipping $package_type (component disabled by --components)"
+        return 0
+    fi
     if [[ ${#packages_ref[@]} -eq 0 ]]; then
         log_info "No $package_type packages to install"
         return 0
@@ -107,7 +61,7 @@ install_emerge_packages() {
     if [[ ${#available_packages[@]} -gt 0 ]]; then
         if hb_sudo emerge --ask=n --quiet "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
-            log_success "Installed $package_type packages"
+            hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
             log_warning "Some $package_type packages failed to install"
             hb_json_add_error "Some $package_type packages failed"
@@ -165,41 +119,53 @@ install_packages_by_type() {
 
 # ── Development tools (Gentoo-specific) ──────────────────────────────────────
 setup_dev_gentoo() {
+    if ! hb_component_enabled dev; then
+        log_info "Skipping setup_dev_gentoo (dev component disabled)"
+        return 0
+    fi
+
     hb_next_step "Installing Gentoo development tools..."
     setup_development_environment
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
-    echo "Honey Badger OS - Gentoo Installation Log" > "$LOG_FILE"
+    echo "Ratel Forge - Gentoo Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
     hb_rollback_init
     export HONEY_BADGER_DISTRO="gentoo"
     local install_type="${HONEY_BADGER_INSTALL_TYPE:-full}"
-    case "$install_type" in
-        full)    hb_set_total_steps 12 ;;
-        developer) hb_set_total_steps 10 ;;
-        desktop) hb_set_total_steps 9 ;;
-        minimal) hb_set_total_steps 5 ;;
-    esac
+    if hb_skip_active; then
+        # Skips and component filters change the step count; show [n] instead
+        # of a fraction that would not add up.
+        hb_set_total_steps 0
+    else
+        case "$install_type" in
+            full)      hb_set_total_steps 15 ;;
+            developer) hb_set_total_steps 14 ;;
+            desktop)   hb_set_total_steps 11 ;;
+            minimal)   hb_set_total_steps 4 ;;
+        esac
+    fi
+    hb_phases_init "$install_type"
     show_banner
     check_gentoo_system
-    update_system
-    install_packages_by_type
-    setup_nano
-    create_utility_scripts \
+    hb_phase update update_system
+    hb_phase packages install_packages_by_type
+    hb_phase nano setup_nano
+    hb_phase utilities create_utility_scripts \
         "sudo emerge --sync && sudo emerge --update --deep @world" \
         "sudo emerge --ask" \
         "sudo emerge --depclean && sudo eclean-dist --deep"
     if [[ "$install_type" != "minimal" ]]; then
         if ! hb_skip_component "theme"; then
-            setup_honey_badger_theme
-            install_assets
+            hb_phase theme setup_honey_badger_theme
+            hb_phase assets install_assets
         fi
     fi
     if [[ "$install_type" == "full" || "$install_type" == "developer" ]]; then
-        setup_dev_gentoo
+        hb_phase dev setup_dev_gentoo
     fi
     show_post_install
 }
