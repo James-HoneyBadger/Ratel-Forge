@@ -151,6 +151,7 @@ jobs:
         run: bash -n distros/${{ matrix.distro }}/install-${{ matrix.distro }}.sh
 
       - name: Dry-run install (minimal and full)
+        shell: bash
         run: |
           export HONEY_BADGER_DRY_RUN=1
           export HONEY_BADGER_NONINTERACTIVE=1
