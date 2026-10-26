@@ -62,7 +62,11 @@ if [[ $DRY_RUN -eq 0 ]]; then
     echo -e "${YELLOW}System packages will NOT be removed.${NC}"
     echo ""
     echo -n "Continue? [y/N]: "
-    read -r response
+    if ! read -r response; then
+        echo ""
+        log_info "No answer given (no terminal input); uninstall cancelled."
+        exit 0
+    fi
     case "$response" in
         [yY]|[yY][eE][sS]) ;;
         *) log_info "Uninstall cancelled."; exit 0 ;;
@@ -86,13 +90,22 @@ do_remove() {
     fi
 }
 
+# Restore a pre-install backup only while the installed file is still ours.
+# A file edited after installation is preserved, and the backup is left next
+# to it so nothing the user wrote can be lost.
 do_restore_or_remove() {
     local target="$1"
-    if [[ -f "${target}.hb-backup" ]]; then
-        do_restore_backup "${target}.hb-backup"
-    else
+    if [[ ! -f "${target}.hb-backup" ]]; then
         do_remove "$target"
+        return 0
     fi
+    if [[ -e "$target" && -s "$target" ]] &&
+        ! head -n 5 "$target" 2>/dev/null |
+            grep -qF -e "Managed by Ratel Forge" -e "Honey Badger OS - Enhanced nano configuration"; then
+        log_info "Leaving $target (edited after install); backup kept at ${target}.hb-backup"
+        return 0
+    fi
+    do_restore_backup "${target}.hb-backup"
 }
 
 # Remove a file only when Ratel Forge created it, identified by our marker.
@@ -213,7 +226,7 @@ if [[ -f "$HOME/.bashrc" ]]; then
     clean_bashrc 'local bin PATH' 'export PATH="$HOME/.local/bin:$PATH"'
     # shellcheck disable=SC2016  # matched literally against ~/.bashrc
     clean_bashrc 'npm global PATH (literal)' 'export PATH=~/.npm-global/bin:$PATH'
-    clean_bashrc 'npm global PATH (expanded)' '^export PATH=.*/\.npm-global/bin:[$]PATH$' regex
+    clean_bashrc 'npm global PATH (expanded)' '^export PATH="?.*/\.npm-global/bin:[$]PATH"?$' regex
     clean_bashrc 'shell fragment header' '# Ratel Forge shell configuration'
     # shellcheck disable=SC2016  # matched literally against ~/.bashrc
     clean_bashrc 'shell fragment loader' 'for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/ratel/shell/*.sh; do [ -r "$f" ] && . "$f"; done'

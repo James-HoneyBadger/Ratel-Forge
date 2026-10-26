@@ -208,7 +208,7 @@ check_npm_prefix() {
 }
 
 check_utilities() {
-    local -a expected=(info update install doctor uninstall)
+    local -a expected=(info update install report doctor uninstall)
     local -a missing=()
     local name
     for name in "${expected[@]}"; do

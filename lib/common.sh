@@ -45,7 +45,16 @@ _HB_VALID_CONFIG_KEYS=(
 
 _hb_validate_config() {
     local config_file="$1"
-    local line var_name valid key
+    local line var_name valid key value
+    # A value may be a bare word, a single-quoted string, or a double-quoted
+    # string holding plain text plus ${VAR} / ${VAR:-default} references.
+    # Nothing else is allowed: `KEY=value command` would run a command when
+    # the file is sourced, which a metacharacter scan alone does not catch.
+    local safe_chars='[A-Za-z0-9_./:@,+~-]'
+    # shellcheck disable=SC2016  # literal regex: `$` matches an expansion
+    local param_ref='\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)'
+    local safe_text="(${safe_chars}|${param_ref})*"
+    local default_ref='\$\{[A-Za-z_][A-Za-z0-9_]*(:-'"${safe_text}"')?\}'
     while IFS= read -r line; do
         # Skip comments and blank lines
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -64,8 +73,20 @@ _hb_validate_config() {
 
         var_name="${line%%=*}"
         var_name="${var_name// /}"
-        if [[ ! "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        if [[ ! "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ || "$line" != *=* ]]; then
             printf 'SECURITY: Rejecting malformed config line: %s\n' "$line" >&2
+            return 1
+        fi
+
+        value="${line#*=}"
+        value="${value%"${value##*[![:space:]]}"}"   # trim trailing whitespace
+        if [[ "$value" == *' #'* ]]; then
+            value="${value%% #*}"                   # drop an inline comment
+        fi
+        if [[ ! "$value" =~ ^\"(${safe_text}|${default_ref})*\"$ ]] &&
+           [[ ! "$value" =~ ^\'[^\']*\'$ ]] &&
+           [[ ! "$value" =~ ^${safe_chars}+$ ]]; then
+            printf 'SECURITY: Rejecting unsafe config value: %s\n' "$line" >&2
             return 1
         fi
 
@@ -111,7 +132,11 @@ fi
 # Dry runs must not write under $HOME, so their logs go to a temporary
 # directory; real runs keep a rotating history in the data directory.
 if [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]]; then
-    _HB_LOG_DIR="${TMPDIR:-/tmp}/honeybadger-dry-run"
+    _HB_LOG_DIR="${TMPDIR:-/tmp}/honeybadger-dry-run-$(id -u)"
+    # A predictable shared path could be a symlink planted by another user.
+    if [[ -L "$_HB_LOG_DIR" ]]; then
+        _HB_LOG_DIR="$(mktemp -d 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}")"
+    fi
 else
     _HB_LOG_DIR="${HOME}/.local/share/honey-badger/logs"
 fi
@@ -189,25 +214,32 @@ hb_next_step() {
 
 
 # ── Lock file (prevent concurrent runs) ─────────────────────────────────────
-_HB_LOCK_FILE="/tmp/honeybadger-install.lock"
+# Kept under the user's data directory: a fixed name in /tmp can be pre-created
+# as a symlink by another local user, and `>` would then truncate the target.
+_HB_LOCK_FILE="${HOME}/.local/share/honey-badger/install.lock"
 _HB_LOCK_FD=""
 
 hb_acquire_lock() {
-    exec 9>"$_HB_LOCK_FILE"
+    mkdir -p "$(dirname "$_HB_LOCK_FILE")" 2>/dev/null || true
+    # Append mode never truncates, and the file is never unlinked below, so a
+    # concurrently starting run always contends for the same inode.
+    if ! exec 9>>"$_HB_LOCK_FILE"; then
+        log_warning "Cannot open the lock file ($_HB_LOCK_FILE); continuing without it"
+        return 0
+    fi
     if ! flock -n 9; then
         log_error "Another Ratel Forge installation is already running."
-        log_error "If this is wrong, remove $_HB_LOCK_FILE and try again."
+        log_error "The lock is released when that run exits; wait for it to finish."
         exit 1
     fi
     _HB_LOCK_FD=9
-    echo $$ > "$_HB_LOCK_FILE"
+    printf '%s\n' "$$" >&9
     log_debug "Lock acquired (PID $$)"
 }
 
 hb_release_lock() {
     if [[ -n "$_HB_LOCK_FD" ]]; then
         flock -u 9 2>/dev/null || true
-        rm -f "$_HB_LOCK_FILE"
         log_debug "Lock released"
     fi
 }
@@ -232,9 +264,8 @@ _hb_cleanup() {
     # Save checkpoint on non-zero exit
     if [[ $exit_code -ne 0 && $_HB_STEP_CURRENT -gt 0 ]]; then
         _hb_save_checkpoint
-        log_warning "Installation interrupted at step ${_HB_STEP_CURRENT}/${_HB_STEP_TOTAL}"
-        log_info "Last completed step: ${_HB_STEP_CURRENT}"
-        log_info "Re-run the installer to resume from the last checkpoint."
+        log_warning "Installation interrupted during step ${_HB_STEP_CURRENT}/${_HB_STEP_TOTAL}"
+        log_info "Re-run the installer (add --resume to skip completed phases) to continue."
         log_info "Installation log: ${LOG_FILE}"
     fi
     exit "$exit_code"
@@ -270,13 +301,15 @@ ENDCP
 }
 
 hb_load_checkpoint() {
+    local step=0
     if [[ -f "$_HB_CHECKPOINT_FILE" ]]; then
-        # shellcheck source=/dev/null
-        source "$_HB_CHECKPOINT_FILE"
-        echo "${CHECKPOINT_STEP:-0}"
-    else
-        echo "0"
+        # Parse the step instead of sourcing the file: state must never be
+        # able to execute, and a truncated file must not abort the installer.
+        step="$(sed -n 's/^CHECKPOINT_STEP=\([0-9][0-9]*\)$/\1/p' \
+            "$_HB_CHECKPOINT_FILE" 2>/dev/null | head -n1)"
     fi
+    [[ "$step" =~ ^[0-9]+$ ]] || step=0
+    printf '%s' "$step"
 }
 
 hb_clear_checkpoint() {
@@ -372,7 +405,10 @@ hb_download() {
     fi
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 2 --connect-timeout "$timeout" --max-time 120 \
+        # Restrict both the request and any redirect to HTTPS so a downgrade
+        # cannot serve different content than the URL implies.
+        curl -fsSL --retry 2 --proto '=https' --proto-redir '=https' \
+            --connect-timeout "$timeout" --max-time 120 \
             "$url" -o "$dest" || { log_error "Download failed: $url"; return 1; }
     elif command -v wget >/dev/null 2>&1; then
         wget -q --timeout="$timeout" --tries=2 -O "$dest" "$url" \
@@ -629,7 +665,14 @@ hb_json_write() {
         status="partial"
     fi
 
-    cat > "$output_file" << ENDJSON
+    # Write to a private temp file and rename it into place: `> /tmp/name`
+    # would follow a symlink planted by another local user and truncate it.
+    local tmp_out
+    tmp_out="$(mktemp "${output_file}.XXXXXX" 2>/dev/null || mktemp 2>/dev/null)" || {
+        log_warning "Could not create a temporary file for the installation summary"
+        return 0
+    }
+    cat > "$tmp_out" << ENDJSON
 {
   "honey_badger_version": "$(_hb_json_escape "${HONEY_BADGER_VERSION:-1.0.0}")",
   "distro": "$(_hb_json_escape "$distro")",
@@ -644,6 +687,11 @@ hb_json_write() {
   "errors": ${errors_json}
 }
 ENDJSON
+    if ! mv -f "$tmp_out" "$output_file" 2>/dev/null; then
+        rm -f "$tmp_out" 2>/dev/null || true
+        log_warning "Could not write the installation summary to $output_file"
+        return 0
+    fi
     log_info "Installation summary written to $output_file"
 }
 
@@ -834,7 +882,7 @@ setup_node_dev() {
     local npm_global="${HONEY_BADGER_NPM_GLOBAL_PATH:-$HOME/.npm-global}"
     mkdir -p "$npm_global"
     npm config set prefix "$npm_global"
-    ensure_bashrc_line "export PATH=${npm_global}/bin:\$PATH"
+    ensure_bashrc_line "export PATH=\"${npm_global}/bin:\$PATH\""
 
     npm config set fund false 2>/dev/null || true
     npm config set audit-level high 2>/dev/null || true

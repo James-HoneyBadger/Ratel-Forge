@@ -164,7 +164,7 @@ show_version() {
         codename="$(sed -n 's/^HONEY_BADGER_CODENAME=.*:-*\([^}]*\)}.*$/\1/p' "$conf" | head -n1)"
     fi
 
-    version="${HONEY_BADGER_VERSION:-${version:-3.0.1}}"
+    version="${HONEY_BADGER_VERSION:-${version:-3.0.2}}"
     codename="${HONEY_BADGER_CODENAME:-${codename:-Fearless}}"
 
     printf 'Ratel Forge %s%s\n' "$version" "${codename:+ \"$codename\"}"
@@ -563,7 +563,8 @@ check_option_coherence() {
         apps)      profile_components="base apps" ;;
         *)         profile_components="base dev apps" ;;
     esac
-    for c in ${HONEY_BADGER_COMPONENTS//,/ }; do
+    local requested="${HONEY_BADGER_COMPONENTS:-}"
+    for c in ${requested//,/ }; do
         [[ " $profile_components " == *" $c "* ]] ||
             log_warning "The $install_type profile does not install the '$c' component"
     done
@@ -634,7 +635,7 @@ run_installer() {
         log_info "Review the log for details:"
         log_info "  • ${LOG_FILE:-unknown}"
         log_info "  • ${_HB_LOG_DIR:-/tmp}/honeybadger-${distro}-*.log"
-        log_info "Fix the reported issue, then re-run install.sh to resume."
+        log_info "Fix the reported issue, then re-run with --resume to skip completed phases."
         exit 1
     fi
 }
@@ -675,7 +676,8 @@ main() {
     local checkpoint_step=0
     if declare -f hb_load_checkpoint >/dev/null 2>&1; then
         checkpoint_step="$(hb_load_checkpoint)"
-        if [[ "${checkpoint_step:-0}" -gt 0 ]]; then
+        [[ "$checkpoint_step" =~ ^[0-9]+$ ]] || checkpoint_step=0
+        if (( checkpoint_step > 0 )); then
             log_warning "A previous run stopped at step ${checkpoint_step}."
             if [[ "${HONEY_BADGER_RESUME:-0}" == "1" ]]; then
                 log_info "Resume requested: completed phases will be skipped"

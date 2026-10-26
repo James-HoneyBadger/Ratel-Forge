@@ -1,4 +1,5 @@
-# Honey Badger OS - Enhanced nano configuration
+# Managed by Ratel Forge
+# Ratel Forge - enhanced nano configuration
 # Key bindings
 bind ^S savefile main
 bind ^Q exit all
