@@ -68,7 +68,7 @@ jobs:
         run: |
           shellcheck -x -s bash \
             -e SC2034 \
-            install.sh lib/common.sh uninstall.sh \
+            install.sh lib/*.sh uninstall.sh \
             distros/*/install-*.sh \
             assets/honey-badger-* \
             scripts/check-no-desktop-layer.sh
@@ -150,9 +150,20 @@ jobs:
       - name: Syntax check distro script
         run: bash -n distros/${{ matrix.distro }}/install-${{ matrix.distro }}.sh
 
-      - name: Dry-run install
+      - name: Dry-run install (minimal and full)
         run: |
           export HONEY_BADGER_DRY_RUN=1
           export HONEY_BADGER_NONINTERACTIVE=1
-          export HONEY_BADGER_INSTALL_TYPE=minimal
-          bash distros/${{ matrix.distro }}/install-${{ matrix.distro }}.sh || true
+          export HONEY_BADGER_NO_BANNER=1
+          export HONEY_BADGER_NO_COLOR=1
+          for type in minimal full; do
+            export HONEY_BADGER_INSTALL_TYPE="$type"
+            echo "::group::dry-run $type"
+            output=$(timeout 600 bash "distros/${{ matrix.distro }}/install-${{ matrix.distro }}.sh" 2>&1) || true
+            printf '%s\n' "$output"
+            echo "::endgroup::"
+            if ! grep -q "installation complete" <<<"$output"; then
+              echo "✗ $type dry-run did not complete"
+              exit 1
+            fi
+          done

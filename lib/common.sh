@@ -45,20 +45,31 @@ _HB_VALID_CONFIG_KEYS=(
 
 _hb_validate_config() {
     local config_file="$1"
+    local line var_name valid key
     while IFS= read -r line; do
         # Skip comments and blank lines
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// /}" ]] && continue
-        # Extract variable name
-        local var_name="${line%%=*}"
-        var_name="${var_name// /}"
-        # Reject lines with command substitution or subshells
-        if [[ "$line" =~ \$\( ]] || [[ "$line" =~ \` ]]; then
-            echo "SECURITY: Rejecting config line with command substitution: $line" >&2
+
+        # Only plain assignments are allowed: shell metacharacters could turn a
+        # config line into arbitrary commands once the file is sourced.
+        # shellcheck disable=SC2016  # these are literal metacharacters
+        if [[ "$line" == *'$('* ]] || [[ "$line" == *'`'* ]] ||
+           [[ "$line" == *';'* ]] || [[ "$line" == *'|'* ]] ||
+           [[ "$line" == *'&'* ]] || [[ "$line" == *'>'* ]] ||
+           [[ "$line" == *'<'* ]]; then
+            printf 'SECURITY: Rejecting unsafe config line: %s\n' "$line" >&2
             return 1
         fi
-        # Check against whitelist
-        local valid=false
+
+        var_name="${line%%=*}"
+        var_name="${var_name// /}"
+        if [[ ! "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            printf 'SECURITY: Rejecting malformed config line: %s\n' "$line" >&2
+            return 1
+        fi
+
+        valid=false
         for key in "${_HB_VALID_CONFIG_KEYS[@]}"; do
             if [[ "$var_name" == "$key" ]]; then
                 valid=true
@@ -66,7 +77,8 @@ _hb_validate_config() {
             fi
         done
         if ! $valid; then
-            echo "WARNING: Unknown config key '$var_name' in $config_file (ignored)" >&2
+            printf 'SECURITY: Unknown config key %s in %s\n' "$var_name" "$config_file" >&2
+            return 1
         fi
     done < "$config_file"
     return 0
@@ -96,16 +108,23 @@ if [[ "${HONEY_BADGER_DEV_MODE:-false}" == "true" ]]; then
 fi
 
 # ── Logging setup ────────────────────────────────────────────────────────────
-# Persistent log directory with rotation
-_HB_LOG_DIR="${HOME}/.local/share/honey-badger/logs"
+# Dry runs must not write under $HOME, so their logs go to a temporary
+# directory; real runs keep a rotating history in the data directory.
+if [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]]; then
+    _HB_LOG_DIR="${TMPDIR:-/tmp}/honeybadger-dry-run"
+else
+    _HB_LOG_DIR="${HOME}/.local/share/honey-badger/logs"
+fi
 mkdir -p "$_HB_LOG_DIR" 2>/dev/null || _HB_LOG_DIR="/tmp"
 
-# Configurable log rotation count (default 5)
+# Configurable log rotation count (default 5); reject non-numeric or zero.
 _HB_LOG_KEEP="${HONEY_BADGER_LOG_COUNT:-5}"
+if [[ ! "$_HB_LOG_KEEP" =~ ^[0-9]+$ ]] || (( _HB_LOG_KEEP < 1 )); then
+    _HB_LOG_KEEP=5
+fi
 
 # Rotate logs: keep last N runs
 _hb_rotate_logs() {
-    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     local log_dir="$1"
     local keep="${_HB_LOG_KEEP}"
     local -a old_logs=()
@@ -125,9 +144,9 @@ _hb_rotate_logs() {
 
 _hb_rotate_logs "$_HB_LOG_DIR"
 
-# Default log file with timestamp
+# Default log file with timestamp. Logging helpers create it on first write,
+# so runs that log nothing leave no empty file behind.
 : "${LOG_FILE:=${_HB_LOG_DIR}/honeybadger-$(date +%Y%m%d-%H%M%S).log}"
-touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/honeybadger-install.log"
 
 # Wrap sudo: in dry-run mode, print the command instead of executing it
 hb_sudo() {
@@ -264,11 +283,6 @@ hb_clear_checkpoint() {
     rm -f "$_HB_CHECKPOINT_FILE"
 }
 
-hb_should_skip_step() {
-    local checkpoint_step="${1:-0}"
-    [[ $_HB_STEP_CURRENT -le $checkpoint_step ]]
-}
-
 # ── Phase-level resume ──────────────────────────────────────────────────────
 # Checkpoints record how far a run got; phases record which units of work
 # completed, so `--resume` can skip them safely on the next run.
@@ -336,20 +350,6 @@ hb_rollback_init() {
     [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
     mkdir -p "$(dirname "$_HB_ROLLBACK_FILE")" 2>/dev/null || true
     echo "# Ratel Forge Rollback Manifest - $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_HB_ROLLBACK_FILE"
-}
-
-hb_rollback_add_packages() {
-    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
-    local pm_type="$1"
-    shift
-    for pkg in "$@"; do
-        echo "PACKAGE:${pm_type}:${pkg}" >> "$_HB_ROLLBACK_FILE"
-    done
-}
-
-hb_rollback_add_file() {
-    [[ "${HONEY_BADGER_DRY_RUN:-0}" == "1" ]] && return 0
-    echo "FILE:$1" >> "$_HB_ROLLBACK_FILE"
 }
 
 hb_rollback_add_group() {
@@ -481,6 +481,8 @@ hb_enable_service() {
 # HONEY_BADGER_COMPONENTS is a comma-separated subset; unset means all.
 hb_component_enabled() {
     local name="$1"
+    # base is the floor of every profile, from the CLI or the environment.
+    [[ "$name" == "base" ]] && return 0
     [[ -z "${HONEY_BADGER_COMPONENTS:-}" ]] && return 0
     case ",${HONEY_BADGER_COMPONENTS}," in
         *",$name,"*) return 0 ;;
@@ -552,7 +554,6 @@ ensure_bashrc_line() {
         return 0
     fi
 
-    touch "$bashrc"
     hb_backup_file "$bashrc"
     if ! grep -Fxq "$line" "$bashrc"; then
         printf '%s\n' "$line" >> "$bashrc"
@@ -773,10 +774,11 @@ setup_docker() {
     fi
 
     # Add user to docker group WITH explicit warning
-    if ! groups "$USER" | grep -q docker; then
+    if ! id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
         log_warning "Adding $USER to the 'docker' group grants root-equivalent privileges."
         log_warning "Only proceed if you trust all software running under this user account."
         hb_sudo usermod -aG docker "$USER"
+        hb_rollback_add_group docker "$USER"
         log_success "Docker configured (log out and back in for group changes to take effect)"
     else
         log_info "User already in docker group"

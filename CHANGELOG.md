@@ -5,6 +5,42 @@ All notable changes to Ratel (formerly Honey Badger OS) are documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-10-26
+
+Fixes found during a full review of the 3.0.0 provisioning rewrite.
+
+### Fixed
+- **`--skip-docker` only skipped configuration.** Docker packages are now
+  filtered from every manifest. Slackware no longer skips git/python/node setup
+  when Docker cannot be installed, and Void no longer enables the Docker service
+  when the flag is set.
+- **Docker group membership was never recorded for uninstall.** It is written to
+  the rollback manifest, removed by `uninstall.sh`, and matched by exact group
+  name rather than a substring.
+- **Configuration validation only warned about unknown keys.** Unknown keys,
+  malformed assignments, command substitution, and shell metacharacters are now
+  rejected before the file is sourced.
+- **Dry runs wrote logs under `$HOME`.** Dry-run logs go to a temporary
+  directory; no empty log file is created on every run, and invalid
+  `HONEY_BADGER_LOG_COUNT` values fall back to 5 instead of aborting startup.
+- **Uninstall could restore a stale `.bashrc`.** It now restores the pre-install
+  backup only when no user edits remain, removes the expanded npm `PATH` line,
+  and no longer aborts when a managed line was the last line in the file.
+- **CI dry-runs could not fail.** Each provisioner now runs the minimal and full
+  profiles and the job fails unless the completion summary is reached.
+  ShellCheck now covers every library module.
+- **The Full disk check failed on hosts with less free space than the
+  requirement** even though the requirement was applied correctly.
+- **Added regression tests** for component/base handling, config validation,
+  `--skip-docker`, log rotation, dry-run write safety, and manifest duplicates.
+
+### Upgrading from 2.x
+3.0 removed desktop provisioning. Leftover 2.x desktop files are no longer
+managed by the installer or uninstaller. Remove `~/.themes/Ratel*`,
+`~/.icons/Ratel`, `/usr/share/themes/Ratel*`,
+`/usr/share/backgrounds/honeybadger.jpg`, and Ratel Forge LightDM drop-ins under
+`/etc/lightdm/`, and clear any `user-session=xfce` line.
+
 ## [3.0.0] - 2026-10-25
 
 **Ratel Forge is now a developer provisioning system, not a desktop installer.**

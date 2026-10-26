@@ -6,8 +6,8 @@ Current results on Linux, Bash 5.3:
 |-------|--------|--------|
 | `verify_scripts.sh` | 174 | ✅ all passed |
 | `verify_advanced.sh` | 28 | ✅ all passed |
-| `test_final.sh` | 87 | ✅ all passed |
-| **Total** | **289** | **✅** |
+| `test_final.sh` | 94 | ✅ all passed |
+| **Total** | **296** | **✅** |
 
 CI additionally runs `shellcheck` on every script, enforces the desktop-layer
 guard, and dry-runs the installer in Arch, Debian, Fedora, Gentoo, openSUSE,
@@ -106,7 +106,7 @@ Actually sources and runs code:
 - **Profile coherence** — a component outside the selected profile (for example
   `dev` with `apps`) is reported instead of silently ignored.
 
-## Manual verification performed for 3.0.0
+## Manual verification performed for 3.0.1
 
 - Grepped the executable and configuration surface for XFCE, Thunar, LightDM,
   greeter, session, boot-target, theme, font, and wallpaper references; zero

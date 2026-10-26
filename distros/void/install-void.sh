@@ -119,7 +119,7 @@ setup_docker_void() {
         return 0
     fi
 
-    if command -v docker >/dev/null 2>&1; then
+    if ! hb_skip_component docker && command -v docker >/dev/null 2>&1; then
         enable_runit_service "docker"
     fi
     setup_development_environment

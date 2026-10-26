@@ -29,7 +29,7 @@ Removes Ratel Forge customizations:
   • Nano configuration (~/.nanorc, ~/.nano/)
   • Shell fragments (~/.config/ratel/shell) and readline settings (~/.inputrc)
   • CLI tool configuration (bat, ripgrep, tmux, EditorConfig)
-  • Restores backed-up config files (.hb-backup -> original)
+  • Restores backed-up config files it owns, or preserves them when edited
   • Clears Ratel Forge data (~/.local/share/honey-badger/)
 
 This script is also installed as `honey-badger-uninstall`, so removal works
@@ -122,6 +122,30 @@ do_restore_backup() {
     fi
 }
 
+# Remove a managed line from ~/.bashrc. fixed|regex selects the match mode.
+clean_bashrc() {
+    local label="$1" pattern="$2" mode="${3:-fixed}" matched=0
+    if [[ "$mode" == "regex" ]]; then
+        grep -Eq "$pattern" "$HOME/.bashrc" 2>/dev/null && matched=1
+    else
+        grep -Fqx "$pattern" "$HOME/.bashrc" 2>/dev/null && matched=1
+    fi
+    [[ $matched -eq 1 ]] || return 0
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        log_info "Would remove from .bashrc: $label"
+    else
+        if [[ "$mode" == "regex" ]]; then
+            sed -E "\\|$pattern|d" "$HOME/.bashrc" > "$HOME/.bashrc.tmp" || true
+        else
+            grep -Fxv "$pattern" "$HOME/.bashrc" > "$HOME/.bashrc.tmp" || true
+        fi
+        mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
+        log_success "Removed from .bashrc: $label"
+    fi
+    removed=$((removed + 1))
+}
+
 # ── Remove utility scripts ──────────────────────────────────────────────────
 log_info "Checking Ratel Forge utility scripts..."
 for script in honey-badger-info honey-badger-update honey-badger-install \
@@ -139,10 +163,6 @@ do_restore_or_remove "$HOME/.config/ripgrep/config"
 do_restore_or_remove "$HOME/.config/tmux/tmux.conf"
 do_remove "$HOME/.config/ratel"
 do_remove_if_managed "$HOME/.config/git/ignore"
-
-# ── Restore other backed-up files ───────────────────────────────────────────
-log_info "Checking for backed-up config files..."
-do_restore_backup "$HOME/.bashrc.hb-backup"
 
 # ── Process rollback manifest ───────────────────────────────────────────────
 MANIFEST="$HOME/.local/share/honey-badger/rollback-manifest"
@@ -186,27 +206,33 @@ do_remove "$HOME/.local/share/honey-badger"
 # ── Clean bashrc additions ──────────────────────────────────────────────────
 if [[ -f "$HOME/.bashrc" ]]; then
     log_info "Checking bashrc for Ratel Forge additions..."
+    # shellcheck disable=SC2016  # patterns are matched literally against ~/.bashrc
+    clean_bashrc 'export EDITOR=nano' 'export EDITOR=nano'
+    clean_bashrc 'export VISUAL=nano' 'export VISUAL=nano'
     # shellcheck disable=SC2016  # matched literally against ~/.bashrc
-    local_patterns=(
-        'export EDITOR=nano'
-        'export VISUAL=nano'
-        'export PATH="$HOME/.local/bin:$PATH"'
-        'export PATH=~/.npm-global/bin:$PATH'
-        '# Ratel Forge shell configuration'
-        'for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/ratel/shell/*.sh; do [ -r "$f" ] && . "$f"; done'
-    )
-    for pattern in "${local_patterns[@]}"; do
-        if grep -Fxq "$pattern" "$HOME/.bashrc" 2>/dev/null; then
+    clean_bashrc 'local bin PATH' 'export PATH="$HOME/.local/bin:$PATH"'
+    # shellcheck disable=SC2016  # matched literally against ~/.bashrc
+    clean_bashrc 'npm global PATH (literal)' 'export PATH=~/.npm-global/bin:$PATH'
+    clean_bashrc 'npm global PATH (expanded)' '^export PATH=.*/\.npm-global/bin:[$]PATH$' regex
+    clean_bashrc 'shell fragment header' '# Ratel Forge shell configuration'
+    # shellcheck disable=SC2016  # matched literally against ~/.bashrc
+    clean_bashrc 'shell fragment loader' 'for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/ratel/shell/*.sh; do [ -r "$f" ] && . "$f"; done'
+
+    # Restore the pre-install file only when nothing but managed lines were in
+    # it; otherwise keep the current file and leave the backup for inspection.
+    if [[ -f "$HOME/.bashrc.hb-backup" ]]; then
+        if [[ ! -s "$HOME/.bashrc" ]] || ! grep -q '[^[:space:]]' "$HOME/.bashrc" 2>/dev/null; then
             if [[ $DRY_RUN -eq 1 ]]; then
-                log_info "Would remove from .bashrc: $pattern"
+                log_info "Would restore: $HOME/.bashrc.hb-backup -> $HOME/.bashrc"
             else
-                grep -Fxv "$pattern" "$HOME/.bashrc" > "$HOME/.bashrc.tmp" && \
-                    mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
-                log_success "Removed from .bashrc: $pattern"
+                mv "$HOME/.bashrc.hb-backup" "$HOME/.bashrc"
+                log_success "Restored: $HOME/.bashrc"
             fi
             removed=$((removed + 1))
+        else
+            log_info "Left the pre-install backup at ~/.bashrc.hb-backup (current .bashrc has user edits)"
         fi
-    done
+    fi
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────

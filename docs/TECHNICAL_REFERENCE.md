@@ -33,11 +33,12 @@ enforced by `scripts/check-no-desktop-layer.sh` and by code review:
 1. No desktop-environment, window-manager, display-manager, greeter, session,
    boot-target, theme, icon-theme, font, or wallpaper code.
 2. No writes to `~/.profile`, `/etc/profile`, PAM, or login configuration.
-3. `--dry-run` performs no mutating action and no network fetch.
+3. `--dry-run` installs nothing and writes no user configuration; it only
+   writes temporary logs and runs the connectivity probe.
 4. Every privileged operation goes through `hb_sudo`.
 5. No `eval`, no `curl | bash`, and no unquoted command construction.
-6. Configuration files accept only whitelisted keys; command substitution is
-   rejected.
+6. Configuration files accept only whitelisted keys; command substitution,
+   unknown keys, and shell metacharacters are rejected.
 7. User files are backed up to `<file>.hb-backup` before replacement.
 8. Provisioning is idempotent; re-running converges without duplicating entries.
 9. The progress denominator never reports a total below the steps executed.
@@ -177,7 +178,7 @@ Generated metadata:
 `~/.local/share/honey-badger/install-info`
 
 ```bash
-HONEY_BADGER_VERSION="3.0.0"
+HONEY_BADGER_VERSION="3.0.1"
 HONEY_BADGER_CODENAME="Fearless"
 HONEY_BADGER_INSTALL_TYPE="developer"
 HONEY_BADGER_COMPONENTS="base,dev"
@@ -302,7 +303,7 @@ Written by `hb_json_write`:
 
 ```json
 {
-  "honey_badger_version": "3.0.0",
+  "honey_badger_version": "3.0.1",
   "distro": "arch",
   "install_type": "full",
   "components": "base,dev,apps",

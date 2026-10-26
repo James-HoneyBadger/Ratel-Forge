@@ -79,8 +79,8 @@ supported — without installing anything.
 ./install.sh --type full --dry-run
 ```
 
-Dry-run suppresses privileged commands **and** user-level file writes, so it is
-safe to run on a live system.
+Dry-run suppresses privileged commands **and** user-level file writes (logs go
+to a temporary directory), so it is safe to run on a live system.
 
 ### Unattended installs
 
@@ -254,6 +254,7 @@ Components map to sections:
 | Docker permission errors | Log out and back in so the group membership applies |
 | Toolchain not found in a new shell | `source ~/.bashrc`, then `honey-badger-doctor` |
 | An interrupt left the machine half-configured | Re-run with `--resume` |
+| Upgrading from 2.x leaves desktop files behind | 3.x does not manage them. Remove `~/.themes/Ratel*`, `~/.icons/Ratel`, `/usr/share/themes/Ratel*`, `/usr/share/backgrounds/honeybadger.jpg`, and `/etc/lightdm/lightdm.conf.d/*ratel-forge*`; clear any `user-session=xfce` line in `/etc/lightdm/lightdm.conf` |
 | Unsure what is broken | Run `honey-badger-doctor` |
 | Filing a bug | Run `honey-badger-report` and review the output before sharing |
 

@@ -218,24 +218,23 @@ setup_docker_slackware() {
         return 0
     fi
 
-    hb_next_step "Setting up Docker for Slackware..."
-    if ! command -v docker >/dev/null 2>&1; then
-        log_info "Docker not found; attempting sbopkg install..."
-        if command -v sbopkg >/dev/null 2>&1; then
-            hb_sudo sbopkg -i docker -B 2>/dev/null || {
-                log_warning "Docker installation via sbopkg failed"
-                return 0
-            }
-        else
-            log_warning "Docker not available and sbopkg not installed"
-            return 0
+    if ! hb_skip_component docker; then
+        hb_next_step "Setting up Docker for Slackware..."
+        if ! command -v docker >/dev/null 2>&1; then
+            log_info "Docker not found; attempting sbopkg install..."
+            if command -v sbopkg >/dev/null 2>&1; then
+                hb_sudo sbopkg -i docker -B 2>/dev/null ||
+                    log_warning "Docker installation via sbopkg failed"
+            else
+                log_warning "Docker not available and sbopkg not installed"
+            fi
+        fi
+        if command -v docker >/dev/null 2>&1 && [[ -x /etc/rc.d/rc.docker ]]; then
+            hb_sudo chmod +x /etc/rc.d/rc.docker
+            hb_sudo /etc/rc.d/rc.docker start 2>/dev/null || true
         fi
     fi
-    # Start docker daemon
-    if [[ -x /etc/rc.d/rc.docker ]]; then
-        hb_sudo chmod +x /etc/rc.d/rc.docker
-        hb_sudo /etc/rc.d/rc.docker start 2>/dev/null || true
-    fi
+
     setup_development_environment
 }
 

@@ -120,7 +120,8 @@ requested individually.
 ```
 
 Dry runs are truthful: user-level steps (nano config, editor defaults, tool
-installs) are skipped as well as privileged ones.
+installs) are skipped as well as privileged ones, and dry-run logs go to a
+temporary directory rather than your home directory.
 
 ### Unattended
 
@@ -270,7 +271,7 @@ one design system from start to finish:
   │ Fearless Linux provisioning                                │
   │                                                            │
   ╰────────────────────────────────────────────────────────────╯
-  🦡  v3.0.0 "Fearless" · dry-run
+  🦡  v3.0.1 "Fearless" · dry-run
 
   ── Choose an installation type ─────────────────────────────
 
@@ -421,9 +422,9 @@ make guard    # fail if desktop-environment or login code reappears
 
 ## Security model
 
-- No `eval`, no `curl | bash`, and no unquoted command construction
-- Config files are whitelisted by key; lines containing command substitution are
-  rejected
+- No `eval`, no `curl | bash`, and array-based package arguments
+- Config files accept only whitelisted keys; command substitution, unknown keys,
+  and shell metacharacters are rejected
 - Every privileged operation goes through `hb_sudo`, which honours dry-run
 - Package names are validated before use by the install helper
 - Docker group membership is announced as root-equivalent before being granted

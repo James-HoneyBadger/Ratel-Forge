@@ -14,6 +14,13 @@ PASSED_TESTS=0
 FAILED_TESTS=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Run every test under a throwaway HOME so the suite never writes logs or
+# backups into the developer's real home directory.
+TEST_SANDBOX_HOME=""
+cleanup_test_sandbox() {
+    [[ -n "$TEST_SANDBOX_HOME" ]] && rm -rf "$TEST_SANDBOX_HOME"
+}
+
 log_test() { echo -e "${CYAN}[TEST]${NC} $1"; }
 log_pass() { echo -e "${GREEN}[PASS]${NC} $1"; PASSED_TESTS=$((PASSED_TESTS + 1)); }
 log_fail() { echo -e "${RED}[FAIL]${NC} $1"; FAILED_TESTS=$((FAILED_TESTS + 1)); }
@@ -430,6 +437,38 @@ test_config_validation() {
     else
         log_fail "Config validation did not reject command substitution"
     fi
+
+    log_test "Config validation rejects unknown keys"
+    tmp_conf=$(mktemp /tmp/hb-test-conf.XXXXXX)
+    echo 'NOT_WHITELISTED=1' > "$tmp_conf"
+    result=$(bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        export HONEY_BADGER_DRY_RUN=1
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        _hb_validate_config "'"$tmp_conf"'" && echo accepted || echo rejected
+    ' 2>&1)
+    rm -f "$tmp_conf"
+    if echo "$result" | grep -q "rejected"; then
+        log_pass "Config validation rejects unknown keys"
+    else
+        log_fail "Config validation accepted an unknown key"
+    fi
+
+    log_test "Config validation rejects shell metacharacters"
+    tmp_conf=$(mktemp /tmp/hb-test-conf.XXXXXX)
+    echo 'HONEY_BADGER_VERSION="9"; echo pwned' > "$tmp_conf"
+    result=$(bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        export HONEY_BADGER_DRY_RUN=1
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        _hb_validate_config "'"$tmp_conf"'" && echo accepted || echo rejected
+    ' 2>&1)
+    rm -f "$tmp_conf"
+    if echo "$result" | grep -q "rejected"; then
+        log_pass "Config validation rejects shell metacharacters"
+    else
+        log_fail "Config validation accepted shell metacharacters"
+    fi
 }
 
 # ── Test 18: desktop-only flags are gone ──────────────────────────────────
@@ -524,6 +563,11 @@ test_dry_run_no_writes() {
         log_pass "Dry-run left ~/.nanorc untouched"
     else
         log_fail "Dry-run created ~/.nanorc"
+    fi
+    if [[ ! -e "$tmp_dir/.local" ]]; then
+        log_pass "Dry-run wrote nothing under ~/.local"
+    else
+        log_fail "Dry-run wrote under ~/.local"
     fi
     rm -rf "$tmp_dir"
 }
@@ -664,7 +708,9 @@ test_profile_disk_requirement() {
     output=$(HOME="$tmp_dir" timeout 90 bash "$SCRIPT_DIR/install.sh" \
         --check --type full --no-color 2>&1 || true)
     rm -rf "$tmp_dir"
-    if echo "$output" | grep -q "8 GB required for full"; then
+    # Either the success line ("8 GB required for full") or the refusal
+    # ("7 GB free, 8 GB required") proves the profile requirement was applied.
+    if echo "$output" | grep -q "8 GB required"; then
         log_pass "Full requires 8 GB"
     else
         log_fail "Full did not report an 8 GB requirement"
@@ -692,6 +738,20 @@ test_manifest_realism() {
         log_fail "A base group still contains desktop-only packages"
     fi
 
+    log_test "No package appears in more than one manifest section"
+    local fam dups=0
+    for fam in arch debian fedora gentoo opensuse slackware void; do
+        if awk '/^\[/{next} /^[[:space:]]*#/ || NF==0 {next} {print}' \
+            "$SCRIPT_DIR/config/packages/$fam.conf" | sort | uniq -d | grep -q .; then
+            dups=1
+        fi
+    done
+    if [[ $dups -eq 0 ]]; then
+        log_pass "Manifests contain no cross-section duplicates"
+    else
+        log_fail "A package is listed in more than one manifest section"
+    fi
+
     log_test "Deprecated exfat-utils is not used anywhere"
     if grep -rqx "exfat-utils" "$SCRIPT_DIR/config/packages"; then
         log_fail "exfat-utils is still referenced"
@@ -715,6 +775,64 @@ test_component_normalization() {
         log_pass "base is added and components are ordered ($result)"
     else
         log_fail "unexpected normalized components: '$result'"
+    fi
+
+    log_test "base stays enabled when HONEY_BADGER_COMPONENTS omits it"
+    result=$(HONEY_BADGER_COMPONENTS=dev HONEY_BADGER_DRY_RUN=1 bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        if hb_component_enabled base && hb_component_enabled dev &&
+           ! hb_component_enabled apps; then
+            echo ok
+        else
+            echo broken
+        fi
+    ' 2>/dev/null)
+    if [[ "$result" == "ok" ]]; then
+        log_pass "base is always enabled for environment component lists"
+    else
+        log_fail "environment components dropped base: $result"
+    fi
+}
+
+# ── Test 29b: --skip-docker filters packages ───────────────────────────────
+test_skip_docker_packages() {
+    echo -e "\n=== SKIP-DOCKER FILTERING ==="
+    log_test "--skip-docker removes Docker packages from the manifest"
+    local result
+    result=$(HONEY_BADGER_SKIP_DOCKER=1 HONEY_BADGER_DRY_RUN=1 bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/arch.conf" >/dev/null 2>&1
+        if printf "%s\n" "${DEVELOPER_PACKAGES[@]}" | grep -qx docker ||
+           printf "%s\n" "${DEVELOPER_PACKAGES[@]}" | grep -qx docker-compose; then
+            echo leaks
+        elif printf "%s\n" "${DEVELOPER_PACKAGES[@]}" | grep -qx postgresql; then
+            echo clean
+        else
+            echo incomplete
+        fi
+    ' 2>/dev/null)
+    if [[ "$result" == "clean" ]]; then
+        log_pass "Docker packages are filtered and other packages remain"
+    else
+        log_fail "Docker filtering result: $result"
+    fi
+}
+
+# ── Test 29c: invalid log rotation counts are rejected ─────────────────────
+test_log_count_validation() {
+    echo -e "\n=== LOG COUNT VALIDATION ==="
+    log_test "Invalid HONEY_BADGER_LOG_COUNT falls back to 5"
+    local out
+    out=$(HOME="$(mktemp -d)" HONEY_BADGER_LOG_COUNT=0 HONEY_BADGER_DRY_RUN=1 bash -c '
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        printf "%s" "$_HB_LOG_KEEP"
+    ' 2>/dev/null)
+    if [[ "$out" == "5" ]]; then
+        log_pass "Zero or non-numeric log counts fall back safely"
+    else
+        log_fail "Unexpected log rotation count: $out"
     fi
 }
 
@@ -903,7 +1021,7 @@ test_profile_aware_reporting() {
     log_test "Doctor skips toolchain checks on a Minimal install"
     mkdir -p "$tmp_dir/.local/share/honey-badger"
     cat > "$tmp_dir/.local/share/honey-badger/install-info" << 'EOF'
-HONEY_BADGER_VERSION="3.0.0"
+HONEY_BADGER_VERSION="3.0.1"
 HONEY_BADGER_INSTALL_TYPE="minimal"
 HONEY_BADGER_COMPONENTS="base"
 EOF
@@ -1045,7 +1163,7 @@ HB_PM_REMOVE='sudo apt purge -y'
 HB_PM_CHECK='apt list --upgradable'
 ENDPM
     cat > "$tmp_dir/.local/share/honey-badger/install-info" << 'ENDINFO'
-HONEY_BADGER_VERSION="3.0.0"
+HONEY_BADGER_VERSION="3.0.1"
 HONEY_BADGER_CODENAME="Fearless"
 HONEY_BADGER_INSTALL_TYPE="developer"
 HONEY_BADGER_COMPONENTS="base,dev"
@@ -1095,7 +1213,7 @@ ENDPKG
     local report_out
     report_out=$(HOME="$tmp_dir" bash "$SCRIPT_DIR/assets/honey-badger-report" 2>&1 || true)
     if [[ "$report_out" == *"RATEL FORGE — ENVIRONMENT REPORT"* \
-          && "$report_out" == *"Version: 3.0.0"* \
+          && "$report_out" == *"Version: 3.0.1"* \
           && "$report_out" == *"<user>"* && "$report_out" == *"~"* ]] \
         && [[ "$report_out" != *"$tmp_dir"* ]]; then
         log_pass "Report includes install data and redacts home/user"
@@ -1121,6 +1239,10 @@ ENDPKG
 run_final_tests() {
     echo "🦡 Ratel - Final Smoke Tests"
     echo "======================================="
+
+    TEST_SANDBOX_HOME="$(mktemp -d)"
+    export HOME="$TEST_SANDBOX_HOME"
+    trap cleanup_test_sandbox EXIT
 
     test_syntax_all
     test_source_common
@@ -1153,6 +1275,8 @@ run_final_tests() {
     test_profile_disk_requirement
     test_manifest_realism
     test_component_normalization
+    test_skip_docker_packages
+    test_log_count_validation
     test_option_coherence
     test_install_metadata
     test_profile_aware_reporting

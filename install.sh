@@ -164,7 +164,7 @@ show_version() {
         codename="$(sed -n 's/^HONEY_BADGER_CODENAME=.*:-*\([^}]*\)}.*$/\1/p' "$conf" | head -n1)"
     fi
 
-    version="${HONEY_BADGER_VERSION:-${version:-3.0.0}}"
+    version="${HONEY_BADGER_VERSION:-${version:-3.0.1}}"
     codename="${HONEY_BADGER_CODENAME:-${codename:-Fearless}}"
 
     printf 'Ratel Forge %s%s\n' "$version" "${codename:+ \"$codename\"}"
