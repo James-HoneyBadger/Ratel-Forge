@@ -178,7 +178,7 @@ Generated metadata:
 `~/.local/share/honey-badger/install-info`
 
 ```bash
-HONEY_BADGER_VERSION="3.0.1"
+HONEY_BADGER_VERSION="3.0.2"
 HONEY_BADGER_CODENAME="Fearless"
 HONEY_BADGER_INSTALL_TYPE="developer"
 HONEY_BADGER_COMPONENTS="base,dev"
@@ -285,7 +285,7 @@ Unknown keys are ignored with a warning.
 |----------|------|--------|
 | Installer log | `~/.local/share/honey-badger/logs/honeybadger-<ts>.log` | Timestamped, ANSI-free |
 | Provisioner log | same directory, `honeybadger-<family>-<ts>.log` | Timestamped |
-| Lock | `/tmp/honeybadger-install.lock` | PID |
+| Lock | `~/.local/share/honey-badger/install.lock` | PID (flock) |
 | Checkpoint | `~/.local/share/honey-badger/checkpoint` | `CHECKPOINT_*` lines |
 | Phase state | `~/.local/share/honey-badger/phases` | `type:`, `distro:`, phase IDs |
 | Rollback manifest | `~/.local/share/honey-badger/rollback-manifest` | `FILE:`, `PACKAGE:`, `GROUP:` |
@@ -303,7 +303,7 @@ Written by `hb_json_write`:
 
 ```json
 {
-  "honey_badger_version": "3.0.1",
+  "honey_badger_version": "3.0.2",
   "distro": "arch",
   "install_type": "full",
   "components": "base,dev,apps",
@@ -323,7 +323,7 @@ is `schema/honeybadger-summary.schema.json` (`additionalProperties: false`).
 ## 10. Utility architecture
 
 Utilities are standalone bash scripts copied from `assets/` to
-`~/.local/bin`. Each reads `install-info`, `pm.conf`, and `ui.sh` from
+`~/.local/bin`. They read `install-info`, `pm.conf`, and `ui.sh` from
 `${XDG_DATA_HOME:-$HOME/.local/share}/honey-badger`. If `ui.sh` is missing they
 fall back to plain-text helpers, so they remain usable.
 
@@ -395,5 +395,8 @@ containers.
 - Service management is provider-agnostic but not verified against a running
   system in tests.
 - Slackware packages outside the official disk sets depend on `sbopkg` and
-  SlackBuilds.org availability.
+  SlackBuilds.org availability. `sbopkg` is pinned to a fixed release whose
+  digest is compiled in; a different `HONEY_BADGER_SBOPKG_VERSION` needs
+  `HONEY_BADGER_SBOPKG_SHA256`, and
+  `HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS=1` accepts the download unchecked.
 - Shell fragments target bash only.

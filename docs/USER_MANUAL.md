@@ -228,11 +228,13 @@ files.
 | `HONEY_BADGER_MIN_DISK_GB` | integer | Override the profile disk check |
 | `HONEY_BADGER_NPM_GLOBAL_PATH` | path (`~/.npm-global`) | npm global prefix |
 | `HONEY_BADGER_REQUIRE_CHECKSUMS` | `1` | Fail downloads without a SHA-256 |
-| `HONEY_BADGER_DOCKER_GPG_SHA256` | hex | Expected Docker key digest |
 | `HONEY_BADGER_GITHUB_CLI_KEY_SHA256` | hex | Expected GitHub CLI key digest |
 | `HONEY_BADGER_VSCODE_KEY_SHA256` | hex | Expected VS Code key digest |
-| `HONEY_BADGER_NODE_SETUP_SHA256` | hex | Expected NodeSource script digest |
-| `HONEY_BADGER_SBOPKG_SHA256` | hex | Expected sbopkg package digest |
+| `HONEY_BADGER_NODE_MAJOR` | int | Node.js major version for the NodeSource repo (default `24`) |
+| `HONEY_BADGER_NODE_KEY_SHA256` | hex | Expected NodeSource signing-key digest |
+| `HONEY_BADGER_SBOPKG_VERSION` | text (`0.38.2`) | sbopkg release to install |
+| `HONEY_BADGER_SBOPKG_SHA256` | hex | sbopkg digest; the default release verifies against a built-in digest |
+| `HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS` | 0/1 | Install root-installed downloads without digest verification |
 | `HONEY_BADGER_ASCII` | `1` | Force ASCII glyphs |
 | `NO_COLOR` | any | Disable colours ([no-color.org](https://no-color.org)) |
 | `CI` | `true` | Implies non-interactive |

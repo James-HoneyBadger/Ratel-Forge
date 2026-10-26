@@ -79,10 +79,10 @@ without an explicit entry.
 | **System utilities** | Installs a lean base of CLI tools (`git`, `curl`, `wget`, `htop`, `tmux`, `rsync`, `nmap`, archives, OpenSSH) plus a modern toolkit: `jq`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`, `direnv`, `delta`, `shellcheck`, `shfmt`, `hyperfine`, `tokei`, `ncdu`, `btop`, `httpie` |
 | **Language toolchains** | Python, Node.js, Go, Rust, OpenJDK, Ruby, PHP, plus GCC, Clang, CMake, Ninja, Meson, and Make |
 | **Containers & data** | Docker, Compose, PostgreSQL/MySQL clients, SQLite, and Redis |
-| **Editor & shell** | Neovim, an enhanced nano configuration, `EDITOR`/`VISUAL` defaults, shell fragments, readline history search, Git identity and quality defaults |
+| **Editor & shell** | Neovim where the family packages it, an enhanced nano configuration, `EDITOR`/`VISUAL` defaults, shell fragments, readline history search, Git identity and quality defaults |
 | **Developer applications** | IDEs, API clients, browsers, office and media tools, and database GUIs |
 | **Tool settings** | Config for `bat`, `ripgrep`, `tmux`, and EditorConfig; `delta` as the Git pager when installed |
-| **Utilities** | `honey-badger-info`, `-update`, `-install`, `-doctor`, and `-uninstall` |
+| **Utilities** | `honey-badger-info`, `-update`, `-install`, `-report`, `-doctor`, and `-uninstall` |
 
 It deliberately does **not** touch:
 
@@ -188,11 +188,13 @@ the shared library is sourced, so they never create log files or locks.
 | `HONEY_BADGER_NPM_GLOBAL_PATH` | path (`~/.npm-global`) | npm global prefix |
 | `HONEY_BADGER_COMPONENTS` | `base,dev,apps` | Same as `--components` |
 | `HONEY_BADGER_REQUIRE_CHECKSUMS` | `1` | Fail downloads that have no SHA-256 |
-| `HONEY_BADGER_DOCKER_GPG_SHA256` | hex | Expected Docker key digest |
 | `HONEY_BADGER_GITHUB_CLI_KEY_SHA256` | hex | Expected GitHub CLI key digest |
 | `HONEY_BADGER_VSCODE_KEY_SHA256` | hex | Expected VS Code key digest |
-| `HONEY_BADGER_NODE_SETUP_SHA256` | hex | Expected NodeSource script digest |
-| `HONEY_BADGER_SBOPKG_SHA256` | hex | Expected sbopkg package digest |
+| `HONEY_BADGER_NODE_MAJOR` | int | Node.js major version for the NodeSource repo (default `24`) |
+| `HONEY_BADGER_NODE_KEY_SHA256` | hex | Expected NodeSource signing-key digest |
+| `HONEY_BADGER_SBOPKG_VERSION` | text (`0.38.2`) | sbopkg release to install |
+| `HONEY_BADGER_SBOPKG_SHA256` | hex | sbopkg digest; the default release verifies against a built-in digest |
+| `HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS` | 0/1 | Install root-installed downloads without digest verification |
 | `HONEY_BADGER_ASCII` | `1` | Force ASCII glyphs |
 | `NO_COLOR` | any | Disable colours ([no-color.org](https://no-color.org)) |
 | `CI` | `true` | Implies non-interactive |
@@ -237,12 +239,14 @@ Components map to sections:
 
 **Base tools (all types)** — `jq`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`,
 `direnv`, `git-delta`, `shellcheck`, `shfmt`, `hyperfine`, `tokei`, `ncdu`,
-`btop`, `httpie`, and `yq` where the family packages it. Debian/Ubuntu ship
-`fd` as `fdfind` and `bat` as `batcat`; the names are unchanged upstream.
+`btop`, `httpie`, and `yq` — installed wherever the family packages them. On
+Debian/Ubuntu `fd` is `fdfind` and `bat` is `batcat`, and Slackware's official
+tree omits a few of these; an unavailable package is a warning, never a failure.
 
 **Developer** — Python 3, Node.js, Go, Rust, OpenJDK, Ruby, PHP; GCC, Clang,
 CMake, Ninja, Meson, Make; Docker and Compose; PostgreSQL/MySQL clients, SQLite,
-Redis; Neovim and an enhanced nano; `gh` and `git-delta`.
+Redis; Neovim where the family packages it and an enhanced nano; `gh` and
+`git-delta`.
 
 **Applications** — Firefox, Chromium, LibreOffice, GIMP, Inkscape, VLC,
 Audacity, FFmpeg, Thunderbird, Telegram, plus IDE/API-client packages where the
@@ -271,7 +275,7 @@ one design system from start to finish:
   │ Fearless Linux provisioning                                │
   │                                                            │
   ╰────────────────────────────────────────────────────────────╯
-  🦡  v3.0.1 "Fearless" · dry-run
+  🦡  v3.0.2 "Fearless" · dry-run
 
   ── Choose an installation type ─────────────────────────────
 
@@ -332,10 +336,11 @@ one design system from start to finish:
 | `honey-badger-doctor [--json]` | Diagnose metadata, utilities, toolchains, shell setup, SSH permissions, locale, and runtime issues |
 | `honey-badger-uninstall` | Remove Ratel Forge customizations (keeps packages) |
 
-Every command sources a shared `~/.local/share/honey-badger/ui.sh`, so they look
-and behave like the installer. They read install metadata from
-`install-info`, and package-manager commands from `pm.conf`, so the same
-utilities work on all seven families.
+Most commands source a shared `~/.local/share/honey-badger/ui.sh`, so they look
+and behave like the installer (the report prints plain text, and the uninstall
+command is a thin wrapper around the standalone uninstaller). They read install
+metadata from `install-info` and package-manager commands from `pm.conf`, so the
+same utilities work on all seven families.
 
 `honey-badger-doctor` is profile-aware: toolchain checks are skipped on Minimal
 installs. Both `info` and `doctor` accept `--json` for dashboards and scripts,
@@ -368,6 +373,12 @@ install.sh                       Entry point: flags, checks, dispatch
 ├── verify_advanced.sh           Security and robustness checks
 └── test_final.sh                Execution-level smoke tests
 ```
+
+Provisioners are internal: they read their configuration from `HONEY_BADGER_*`
+environment variables. `install.sh` parses the command-line flags documented
+above and exports them before the hand-off, so calling
+`distros/<family>/install-<family>.sh` directly needs the variables (for example
+`HONEY_BADGER_DRY_RUN=1 HONEY_BADGER_SKIP_DOCKER=1`).
 
 ### Design decisions
 
@@ -423,14 +434,23 @@ make guard    # fail if desktop-environment or login code reappears
 ## Security model
 
 - No `eval`, no `curl | bash`, and array-based package arguments
-- Config files accept only whitelisted keys; command substitution, unknown keys,
-  and shell metacharacters are rejected
-- Every privileged operation goes through `hb_sudo`, which honours dry-run
+- Config files accept only whitelisted keys, and a value must be a bare word or
+  a quoted string: command substitution, metacharacters, and the
+  `KEY=value command` form are rejected
+- Every privileged operation in the installer and provisioners goes through
+  `hb_sudo`, which honours dry-run (the standalone `uninstall.sh` calls `sudo`
+  directly, and only to drop a group membership)
 - Package names are validated before use by the install helper
 - Docker group membership is announced as root-equivalent before being granted
-- GPG key imports use `--batch --yes` and HTTPS only
-- Downloads are verified to be non-empty; pass a SHA-256 (or set
+- GPG key imports use `--batch --yes`, and every download — redirects included —
+  is restricted to HTTPS
+- Downloads must be non-empty; pass a SHA-256 (or set
   `HONEY_BADGER_REQUIRE_CHECKSUMS=1`) to enforce integrity
+- Content that runs as root is never fetched from a mutable URL: Node.js uses a
+  signed apt repository with a pinned major version, and `sbopkg` is pinned to a
+  release whose digest is compiled in
+- Runtime state (lock, checkpoint, logs) lives under
+  `~/.local/share/honey-badger/`, never at a predictable shared `/tmp` path
 - The install summary has a published JSON schema under `schema/`
 
 ## Troubleshooting
@@ -442,7 +462,7 @@ make guard    # fail if desktop-environment or login code reappears
 | `Insufficient disk space` | Choose a smaller type or free space (`--check` reports what is available) |
 | Package install failures | Non-fatal for optional packages; inspect the log |
 | Toolchain not on `PATH` | Reload the shell (`source ~/.bashrc`) and run `honey-badger-doctor` |
-| Need to undo | `bash uninstall.sh` (packages are left to your package manager) |
+| Need to undo | `bash uninstall.sh` or `honey-badger-uninstall`; config files you edited after installing are kept, and packages are left to your package manager |
 
 Logs live in `~/.local/share/honey-badger/logs/` (rotated, 5 by default). The
 universal installer also writes a summary to `/tmp/honeybadger-summary.json`.

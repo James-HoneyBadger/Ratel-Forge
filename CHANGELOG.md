@@ -5,6 +5,61 @@ All notable changes to Ratel (formerly Honey Badger OS) are documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.2] - 2026-10-26
+
+### Fixed
+- **Debian/Ubuntu provisioning aborted at the repositories step on systems that
+  already ship VS Code's deb822 `vscode.sources`.** The installer wrote a
+  second definition of the same repository with a different `Signed-By`, so apt
+  rejected every command with `Conflicting values set for option Signed-By
+  regarding source https://packages.microsoft.com/repos/code`. An existing VS
+  Code source definition is now reused, and the only file ever removed is the
+  installer's own `sources.list.d/vscode.list` — `/etc/apt/sources.list` and
+  hand-written entries are never touched.
+- **GitHub CLI keyrings kept `mktemp`'s `0600` mode**, so apt's `_apt` user
+  could not read them and signature verification failed. Keyrings are installed
+  `0644`.
+- **The NodeSource setup script was downloaded and executed as root** with only
+  a shebang check. The Node.js repository is now configured like the others —
+  signed keyring plus a `nodistro` source entry — with the major version pinned
+  via `HONEY_BADGER_NODE_MAJOR`.
+- **The lock file lived at `/tmp/honeybadger-install.lock`**, where another
+  local user could pre-create a symlink and have the installer truncate the
+  target (it was opened before the root check). State now lives under
+  `~/.local/share/honey-badger/`, and the file is opened append-only and never
+  unlinked.
+- **The JSON summary was written with `>` to a predictable `/tmp` path** and
+  followed symlinks. It is now written to a private temp file and renamed.
+- **Config validation could be bypassed with `KEY=value command …`.** Values
+  must now be a bare word, a single-quoted string, or a double-quoted string
+  containing only plain text and `${VAR}`/`${VAR:-default}` references.
+- **A corrupted checkpoint file aborted the installer** (`abc: unbound
+  variable`) because the state file was sourced. It is now parsed defensively.
+- **Uninstall discarded edits made after installation** for `.nanorc`,
+  `.inputrc`, `.editorconfig`, and the bat/ripgrep/tmux configs by restoring the
+  pre-install backup over them; the backup is now restored only while the file
+  is still the managed version. Uninstall also cancels cleanly instead of
+  exiting 1 when stdin is closed.
+- **`sbopkg` was resolved from `releases/latest` and installed as root** with no
+  digest. It is pinned to 0.38.2 and verified against a built-in SHA-256; a
+  different `HONEY_BADGER_SBOPKG_VERSION` needs `HONEY_BADGER_SBOPKG_SHA256`, and
+  `HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS=1` opts out explicitly.
+- **Smaller corrections:** downloads are restricted to HTTPS for redirects;
+  unattended Debian runs set `DEBIAN_FRONTEND=noninteractive` and keep existing
+  dpkg config files; Arch updates with a single `pacman -Syu`; openSUSE no
+  longer points SLES at a Leap Packman repository; the Debian Flatpak check no
+  longer treats app IDs as regexes; `honey-badger-doctor` expects
+  `honey-badger-report`; the npm `PATH` fragment quotes its directory; the
+  interrupt message no longer claims the failed step was completed.
+
+### Added
+- Regression tests for apt-source reconciliation, the state-file and uninstall
+  guarantees, the config-validator bypass, and corrupted checkpoints.
+- Toolkit coverage: Debian/Ubuntu now install `yq`, `shfmt`, `tokei`, and
+  `neovim`; Gentoo gains `app-misc/yq` and `dev-util/git-delta`; Slackware gains
+  `tree` from its official tree. Packages a family does not ship are still
+  reported as warnings rather than failures.
+
 ## [3.0.1] - 2026-10-26
 
 Fixes found during a full review of the 3.0.0 provisioning rewrite.
