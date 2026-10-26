@@ -355,6 +355,175 @@ test_backup_and_temp_registration() {
     fi
 }
 
+# ── Apt source reconciliation ───────────────────────────────────────────────
+# VS Code ships its own deb822 vscode.sources. Writing a legacy vscode.list
+# alongside it makes every apt call fail with
+# "Conflicting values set for option Signed-By regarding source ...".
+test_apt_source_reconciliation() {
+    echo -e "\n=== APT SOURCE RECONCILIATION ==="
+
+    local apt_dir
+    apt_dir="$(mktemp -d)"
+
+    run_vscode_repo_helper() {
+        # shellcheck source=/dev/null
+        source distros/debian/install-debian.sh
+        _hb_add_vscode_repository "$apt_dir"
+    }
+
+    reset_apt_dir() {
+        rm -rf "${apt_dir:?}"/* 2>/dev/null || true
+        mkdir -p "$apt_dir/sources.list.d" "$apt_dir/trusted.gpg.d"
+        : > "$apt_dir/sources.list"
+    }
+
+    log_test "Duplicate VS Code sources are collapsed to one"
+    reset_apt_dir
+    cat > "$apt_dir/sources.list.d/vscode.sources" <<'EOF'
+Types: deb
+URIs: https://packages.microsoft.com/repos/code
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/microsoft.gpg
+EOF
+    echo 'deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main' \
+        > "$apt_dir/sources.list.d/vscode.list"
+    echo 'deb [signed-by=/k] https://cli.github.com/packages stable main' > "$apt_dir/sources.list.d/github-cli.list"
+
+    if ( run_vscode_repo_helper ) >/dev/null 2>&1 \
+        && [[ ! -e "$apt_dir/sources.list.d/vscode.list" ]] \
+        && [[ -f "$apt_dir/sources.list.d/vscode.sources" ]] \
+        && [[ -f "$apt_dir/sources.list.d/github-cli.list" ]] \
+        && [[ $(grep -rl 'packages\.microsoft\.com/repos/code' "$apt_dir" | wc -l) -eq 1 ]]; then
+        log_pass "Conflicting legacy source removed, deb822 source kept"
+    else
+        log_fail "Duplicate VS Code source definitions were not reconciled"
+    fi
+
+    log_test "An existing VS Code source is never duplicated"
+    reset_apt_dir
+    echo 'deb [signed-by=/k] https://packages.microsoft.com/repos/code stable main' > "$apt_dir/sources.list"
+    if ( run_vscode_repo_helper ) >/dev/null 2>&1 \
+        && [[ ! -e "$apt_dir/sources.list.d/vscode.list" ]] \
+        && [[ -f "$apt_dir/sources.list" ]]; then
+        log_pass "Existing source definition reused"
+    else
+        log_fail "Existing VS Code source definition was duplicated"
+    fi
+
+    log_test "The system sources.list is never deleted"
+    reset_apt_dir
+    printf 'deb http://deb.debian.org/debian trixie main\n%s\n' \
+        'deb [signed-by=/k] https://packages.microsoft.com/repos/code stable main' > "$apt_dir/sources.list"
+    echo 'deb [signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main' \
+        > "$apt_dir/sources.list.d/vscode.list"
+    cat > "$apt_dir/sources.list.d/vscode.sources" <<'EOF'
+Types: deb
+URIs: https://packages.microsoft.com/repos/code
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/microsoft.gpg
+EOF
+    if ( run_vscode_repo_helper ) >/dev/null 2>&1 \
+        && grep -q 'deb.debian.org' "$apt_dir/sources.list" \
+        && [[ ! -e "$apt_dir/sources.list.d/vscode.list" ]] \
+        && [[ -f "$apt_dir/sources.list.d/vscode.sources" ]]; then
+        log_pass "Only the installer's own vscode.list is reconciled away"
+    else
+        log_fail "Reconciliation removed files it does not own"
+    fi
+
+    log_test "Apt keyrings are installed world-readable"
+    if grep -q 'install -m 0644' distros/debian/install-debian.sh \
+        && ! grep -qE 'hb_sudo cp "[^"]*" /usr/share/keyrings/' distros/debian/install-debian.sh; then
+        log_pass "Keyrings are readable by the _apt user"
+    else
+        log_fail "A keyring may keep mktemp's 0600 mode and break apt"
+    fi
+
+    rm -rf "$apt_dir"
+}
+
+# ── State-file and uninstall safety ─────────────────────────────────────────
+# Privileged state must not live at a predictable shared path, and uninstall
+# must never delete work the user did after installing.
+test_state_and_uninstall_safety() {
+    echo -e "\n=== STATE FILE AND UNINSTALL SAFETY ==="
+
+    local sandbox
+    sandbox="$(mktemp -d)"
+    mkdir -p "$sandbox/.config/bat"
+
+    log_test "Runtime state lives under the user's home, not /tmp"
+    rm -f /tmp/honeybadger-install.lock 2>/dev/null || true
+    if ( HOME="$sandbox"; source lib/common.sh
+         hb_acquire_lock; hb_release_lock ) >/dev/null 2>&1 \
+        && [[ -f "$sandbox/.local/share/honey-badger/install.lock" ]] \
+        && [[ ! -e /tmp/honeybadger-install.lock ]]; then
+        log_pass "Lock file is user-scoped"
+    else
+        log_fail "Lock file is still created at a predictable /tmp path"
+    fi
+
+    log_test "The JSON summary does not follow symlinks"
+    printf 'PRECIOUS\n' > "$sandbox/victim.txt"
+    ln -sf "$sandbox/victim.txt" "$sandbox/summary.json"
+    if ( HOME="$sandbox"; export HONEY_BADGER_ROOT="$PWD"
+         source lib/common.sh >/dev/null 2>&1
+         hb_json_init; hb_json_write "$sandbox/summary.json" ) >/dev/null 2>&1 \
+        && [[ "$(cat "$sandbox/victim.txt")" == "PRECIOUS" ]] \
+        && [[ ! -L "$sandbox/summary.json" ]]; then
+        log_pass "Summary write replaces the link instead of its target"
+    else
+        log_fail "Summary write followed a symlink"
+    fi
+
+    log_test "Uninstall preserves files edited after installation"
+    printf 'ORIGINAL\n' > "$sandbox/.config/bat/config"
+    cp "$sandbox/.config/bat/config" "$sandbox/.config/bat/config.hb-backup"
+    printf '# Managed by Ratel Forge\n--theme=TwoDark\n' > "$sandbox/.config/bat/config"
+    printf '# my tweaks\n--paging=never\n' > "$sandbox/.config/bat/config"
+    ( HOME="$sandbox"; bash uninstall.sh <<< "y" ) >/dev/null 2>&1
+    if grep -q 'my tweaks' "$sandbox/.config/bat/config"; then
+        log_pass "Edited configuration survives uninstall"
+    else
+        log_fail "Uninstall overwrote user edits"
+    fi
+
+    log_test "Uninstall restores an untouched managed file"
+    printf 'ORIGINAL2\n' > "$sandbox/.config/ripgrep-config"
+    mkdir -p "$sandbox/.config/ripgrep"
+    printf 'ORIGINAL2\n' > "$sandbox/.config/ripgrep/config"
+    cp "$sandbox/.config/ripgrep/config" "$sandbox/.config/ripgrep/config.hb-backup"
+    printf '# Managed by Ratel Forge\n--smart-case\n' > "$sandbox/.config/ripgrep/config"
+    ( HOME="$sandbox"; bash uninstall.sh <<< "y" ) >/dev/null 2>&1
+    if [[ "$(cat "$sandbox/.config/ripgrep/config" 2>/dev/null)" == "ORIGINAL2" ]]; then
+        log_pass "Managed file is restored from its backup"
+    else
+        log_fail "Managed file was not restored"
+    fi
+
+    log_test "Uninstall without terminal input exits cleanly"
+    local status=0
+    ( HOME="$sandbox"; bash uninstall.sh </dev/null ) >/dev/null 2>&1 || status=$?
+    if [[ $status -eq 0 ]]; then
+        log_pass "EOF on the confirmation prompt cancels with status 0"
+    else
+        log_fail "Uninstall aborted with status $status when stdin was closed"
+    fi
+
+    log_test "The Debian provisioner does not execute downloaded scripts"
+    if ! grep -q 'hb_sudo bash "\$node_setup"' distros/debian/install-debian.sh \
+        && grep -q 'deb.nodesource.com/gpgkey' distros/debian/install-debian.sh \
+        && grep -q 'node_%s.x nodistro' distros/debian/install-debian.sh; then
+        log_pass "NodeSource is configured as a signed apt repository"
+    else
+        log_fail "A downloaded script is still executed as root"
+    fi
+
+    rm -rf "$sandbox"
+}
+
 # ── Color and verbosity control ──────────────────────────────────────────────
 test_color_verbosity() {
     echo -e "\n=== COLOR & VERBOSITY CONTROL ==="
@@ -403,6 +572,8 @@ run_advanced_tests() {
     test_installation_completeness
     test_json_output
     test_backup_and_temp_registration
+    test_apt_source_reconciliation
+    test_state_and_uninstall_safety
     test_color_verbosity
 
     local TOTAL_TESTS=$((PASSED_TESTS + FAILED_TESTS))

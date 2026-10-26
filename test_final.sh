@@ -353,6 +353,24 @@ test_checkpoint() {
     else
         log_pass "Checkpoint clear works (reset to default)"
     fi
+
+    log_test "A corrupted checkpoint is ignored instead of aborting"
+    mkdir -p "$tmp_dir/.local/share/honey-badger"
+    printf 'CHECKPOINT_STEP=abc\nrm -rf /tmp/should-not-run\n' \
+        > "$tmp_dir/.local/share/honey-badger/checkpoint"
+    result=$(bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        export HONEY_BADGER_DRY_RUN=1
+        export HOME="'"$tmp_dir"'"
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        step=$(hb_load_checkpoint)
+        echo "step:$step"
+    ' 2>&1)
+    if echo "$result" | grep -q "step:0" && [[ ! -e /tmp/should-not-run ]]; then
+        log_pass "Corrupted state is parsed, not sourced"
+    else
+        log_fail "Corrupted checkpoint handling failed: $result"
+    fi
     rm -rf "$tmp_dir"
 }
 
@@ -452,6 +470,22 @@ test_config_validation() {
         log_pass "Config validation rejects unknown keys"
     else
         log_fail "Config validation accepted an unknown key"
+    fi
+
+    log_test "Config validation rejects a command after an assignment"
+    tmp_conf=$(mktemp /tmp/hb-test-conf.XXXXXX)
+    echo 'EDITOR=nano bash -c "touch /tmp/hb-validator-bypass"' > "$tmp_conf"
+    result=$(bash -c '
+        export HONEY_BADGER_ROOT="'"$SCRIPT_DIR"'"
+        export HONEY_BADGER_DRY_RUN=1
+        source "'"$SCRIPT_DIR"'/lib/common.sh"
+        _hb_validate_config "'"$tmp_conf"'" && echo accepted || echo rejected
+    ' 2>&1)
+    rm -f "$tmp_conf" /tmp/hb-validator-bypass
+    if echo "$result" | grep -q "rejected" && [[ ! -e /tmp/hb-validator-bypass ]]; then
+        log_pass "Environment-prefixed commands are rejected"
+    else
+        log_fail "Config with a trailing command was accepted: $result"
     fi
 
     log_test "Config validation rejects shell metacharacters"
@@ -865,6 +899,19 @@ test_option_coherence() {
         log_pass "apps profile reports the unusable dev component"
     else
         log_fail "Profile/component mismatch was not reported: $out"
+    fi
+
+    log_test "No --components option does not trip strict mode"
+    out=$(
+        source "$SCRIPT_DIR/install.sh"
+        unset HONEY_BADGER_COMPONENTS
+        check_option_coherence full 2>&1
+        printf 'rc=%s' "$?"
+    ) || true
+    if [[ "$out" == *"rc=0"* ]]; then
+        log_pass "Unset component selection is handled without an unbound variable"
+    else
+        log_fail "Unset component selection failed: $out"
     fi
 }
 
