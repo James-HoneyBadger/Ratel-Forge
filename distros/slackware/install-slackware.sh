@@ -157,20 +157,33 @@ setup_sbopkg() {
         hb_sudo sbopkg -r 2>/dev/null || true
         return 0
     fi
-    # Resolve latest sbopkg release dynamically; fall back to known version
-    local sbopkg_url
-    sbopkg_url=$(curl -fsSL --connect-timeout 5 -o /dev/null -w '%{redirect_url}' \
-        https://github.com/sbopkg/sbopkg/releases/latest 2>/dev/null || true)
-    if [[ -n "$sbopkg_url" ]]; then
-        local tag="${sbopkg_url##*/}"
-        sbopkg_url="https://github.com/sbopkg/sbopkg/releases/download/${tag}/sbopkg-${tag}-noarch-1_wsr.tgz"
-    else
-        sbopkg_url="https://github.com/sbopkg/sbopkg/releases/latest/download/sbopkg-0.38.2-noarch-1_wsr.tgz"
+    # Pinned release: following "latest" installs whatever the upstream
+    # account publishes next, as root, with no way to review the change.
+    local sbopkg_version="${HONEY_BADGER_SBOPKG_VERSION:-0.38.2}"
+    local sbopkg_url="https://github.com/sbopkg/sbopkg/releases/download/${sbopkg_version}/sbopkg-${sbopkg_version}-noarch-1_wsr.tgz"
+    # Compiled-in digest for the default release, so the common path is
+    # verified out of the box. Another version needs its own digest.
+    local default_digest="c302e306523b234bb025f1a74ee66d3037cfd25f2cc6ffd5f909e4d6278b5db6"
+    local expected="${HONEY_BADGER_SBOPKG_SHA256:-}"
+    if [[ -z "$expected" && "${HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS:-0}" != "1" ]]; then
+        if [[ "$sbopkg_version" == "0.38.2" ]]; then
+            expected="$default_digest"
+        else
+            log_warning "Refusing to install sbopkg ${sbopkg_version} without a pinned checksum."
+            log_info "Set HONEY_BADGER_SBOPKG_SHA256=<sha256 of ${sbopkg_url##*/}> to enable it,"
+            log_info "or HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS=1 to accept the download as-is."
+            hb_json_add_error "sbopkg skipped: no checksum supplied"
+            return 0
+        fi
     fi
+    if [[ -z "$expected" ]]; then
+        log_warning "Installing sbopkg without checksum verification (HONEY_BADGER_ALLOW_UNVERIFIED_DOWNLOADS=1)"
+    fi
+
     local tmp_pkg
     tmp_pkg=$(mktemp /tmp/sbopkg.XXXXXX.tgz)
     hb_register_temp "$tmp_pkg"
-    if hb_download "$sbopkg_url" "$tmp_pkg" "${HONEY_BADGER_SBOPKG_SHA256:-}"; then
+    if hb_download "$sbopkg_url" "$tmp_pkg" "$expected"; then
         hb_sudo installpkg "$tmp_pkg"
         rm -f "$tmp_pkg"
         hb_sudo sbopkg -r 2>/dev/null || true

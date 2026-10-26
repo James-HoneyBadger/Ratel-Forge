@@ -7,13 +7,6 @@ set -euo pipefail
 # Source shared library
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/common.sh"
 
-hb_init_distro_log "debian"
-
-# ── Package lists ────────────────────────────────────────────────────────────
-# Data lives in config/packages/debian.conf so package changes are reviewable
-# without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
-hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/debian.conf"
-
 # ── Banner ───────────────────────────────────────────────────────────────────
 show_banner() {
     hb_show_banner "Debian/Ubuntu" "Debian-based provisioning"
@@ -31,12 +24,123 @@ check_debian_system() {
 update_system() {
     hb_next_step "Updating system packages..."
     hb_sudo apt update
-    hb_sudo apt upgrade -y
+    hb_sudo apt upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
     hb_sudo apt install -y software-properties-common apt-transport-https ca-certificates gnupg lsb-release
     hb_outcome "Would update system packages" "System updated successfully"
 }
 
 # ── Repository setup (secured) ──────────────────────────────────────────────
+# Print every apt source file that already mentions <url substring>.
+# Both the deb822 *.sources form and the legacy *.list form have to be checked.
+_hb_apt_source_files() {
+    local url="$1" apt_dir="${2:-/etc/apt}" file
+    for file in "$apt_dir/sources.list" "$apt_dir"/sources.list.d/*.list "$apt_dir"/sources.list.d/*.sources; do
+        [[ -f "$file" ]] || continue
+        grep -qF "$url" "$file" 2>/dev/null || continue
+        printf '%s\n' "$file"
+    done
+}
+
+_hb_vscode_source_files() {
+    _hb_apt_source_files 'packages.microsoft.com/repos/code' "${1:-/etc/apt}"
+}
+
+# Configure the VS Code apt repository exactly once. apt refuses to merge two
+# definitions of the same source that disagree on Signed-By ("Conflicting
+# values set for option Signed-By"), which breaks every subsequent apt call.
+# An existing definition is reused; the installer's own legacy vscode.list is
+# the only file it will ever remove.
+# shellcheck disable=SC2120  # callers and tests may pass a custom apt directory
+_hb_add_vscode_repository() {
+    local apt_dir="${1:-/etc/apt}"
+    local -a existing_sources=()
+    mapfile -t existing_sources < <(_hb_vscode_source_files "$apt_dir")
+
+    if [[ ${#existing_sources[@]} -gt 0 ]]; then
+        # Only the legacy file this installer writes may ever be removed.
+        # Deleting anything else (sources.list, a hand-written entry) would
+        # drop repositories the user depends on, so any other definition is
+        # simply honoured as-is.
+        local legacy="$apt_dir/sources.list.d/vscode.list"
+        local -a keep=()
+        local file preferred
+        for file in "${existing_sources[@]}"; do
+            [[ "$file" == "$legacy" ]] || keep+=("$file")
+        done
+
+        if [[ ${#keep[@]} -gt 0 && -f "$legacy" ]]; then
+            hb_sudo rm -f "$legacy"
+            log_info "Removed duplicate VS Code source definition: $legacy"
+            hb_json_add_config "removed-source:$legacy"
+        fi
+
+        # Prefer the deb822 format maintained by VS Code when reporting.
+        preferred="${keep[0]:-$legacy}"
+        for file in "${keep[@]}"; do
+            [[ "$file" == *.sources ]] && preferred="$file"
+        done
+        log_info "VS Code repository already configured: $preferred"
+        return 0
+    fi
+
+    log_info "Adding VS Code repository..."
+    local gpg_tmp
+    gpg_tmp="$(mktemp)"
+    hb_register_temp "$gpg_tmp"
+    if hb_download "https://packages.microsoft.com/keys/microsoft.asc" "$gpg_tmp" \
+        "${HONEY_BADGER_VSCODE_KEY_SHA256:-}"; then
+        if [[ -s "$gpg_tmp" ]]; then
+            gpg --batch --yes --dearmor <"$gpg_tmp" \
+                | hb_sudo tee "$apt_dir/trusted.gpg.d/packages.microsoft.gpg" >/dev/null
+            # apt reads keyrings as the unprivileged _apt user, so a restrictive
+            # umask must not leave the key unreadable.
+            hb_sudo chmod 0644 "$apt_dir/trusted.gpg.d/packages.microsoft.gpg"
+            printf 'deb [arch=amd64,arm64,armhf signed-by=%s/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main\n' "$apt_dir" \
+                | hb_sudo tee "$apt_dir/sources.list.d/vscode.list" >/dev/null
+        fi
+    else
+        log_warning "Failed to download the VS Code signing key"
+        hb_json_add_error "VS Code key download failed"
+    fi
+    rm -f "$gpg_tmp"
+}
+
+# Install NodeSource's apt repository without executing their setup script.
+# The major version is pinned (HONEY_BADGER_NODE_MAJOR) so the source URL is
+# reproducible; the keyring is verified when a digest is supplied.
+# shellcheck disable=SC2120  # callers and tests may pass a custom apt directory
+_hb_add_nodesource_repository() {
+    local apt_dir="${1:-/etc/apt}"
+    local major="${HONEY_BADGER_NODE_MAJOR:-24}"
+    [[ "$major" =~ ^[0-9]+$ ]] || major=24
+
+    local -a existing=()
+    mapfile -t existing < <(_hb_apt_source_files 'deb.nodesource.com' "$apt_dir")
+    if [[ ${#existing[@]} -gt 0 ]]; then
+        log_info "Node.js repository already configured: ${existing[0]}"
+        return 0
+    fi
+
+    log_info "Adding Node.js repository..."
+    local key_tmp keyring="/usr/share/keyrings/nodesource.gpg"
+    key_tmp="$(mktemp)"
+    hb_register_temp "$key_tmp"
+    if ! hb_download "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
+        "$key_tmp" "${HONEY_BADGER_NODE_KEY_SHA256:-}"; then
+        log_warning "Failed to download the NodeSource signing key"
+        hb_json_add_error "NodeSource key download failed"
+        rm -f "$key_tmp"
+        return 0
+    fi
+    gpg --batch --yes --dearmor <"$key_tmp" | hb_sudo tee "$keyring" >/dev/null
+    hb_sudo chmod 0644 "$keyring"
+    printf 'deb [signed-by=%s] https://deb.nodesource.com/node_%s.x nodistro main\n' \
+        "$keyring" "$major" \
+        | hb_sudo tee "$apt_dir/sources.list.d/nodesource.list" >/dev/null
+    rm -f "$key_tmp"
+    hb_outcome "Would add the Node.js repository" "Node.js repository added"
+}
+
 add_repositories() {
     hb_next_step "Adding additional repositories..."
 
@@ -55,31 +159,16 @@ add_repositories() {
         fi
     fi
 
-    # Node.js: download setup script to temp file first (no pipe to bash)
-    if ! command -v nodejs >/dev/null 2>&1 || [[ $(nodejs --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1) -lt 20 ]]; then
-        log_info "Adding Node.js repository..."
-        local node_setup
-        node_setup="$(mktemp)"
-        hb_register_temp "$node_setup"
-        if hb_download "https://deb.nodesource.com/setup_lts.x" "$node_setup" \
-            "${HONEY_BADGER_NODE_SETUP_SHA256:-}"; then
-            if [[ -s "$node_setup" ]]; then
-                if head -n1 "$node_setup" | grep -q '^#!.*bash'; then
-                    hb_sudo bash "$node_setup"
-                    hb_outcome "Would add the Node.js repository" "Node.js repository added"
-                else
-                    log_warning "Node.js setup script failed validation (not a shell script)"
-                    hb_json_add_error "Node.js setup script validation failed"
-                fi
-            else
-                log_info "[DRY-RUN] Would run the Node.js setup script"
-            fi
-            rm -f "$node_setup"
-        else
-            rm -f "$node_setup"
-            log_warning "Failed to download Node.js setup script"
-            hb_json_add_error "Node.js repository setup failed"
-        fi
+    # Node.js: configure NodeSource's apt repository directly. Running their
+    # setup script as root would execute unverified remote code, so the signing
+    # key and the source entry are installed like every other repository.
+    local node_major=""
+    if command -v nodejs >/dev/null 2>&1; then
+        node_major="$(nodejs --version 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\).*/\1/p')"
+        [[ "$node_major" =~ ^[0-9]+$ ]] || node_major=0
+    fi
+    if [[ -z "$node_major" ]] || (( node_major < 20 )); then
+        _hb_add_nodesource_repository
     fi
 
     # Docker: install the distribution's packages (docker.io/docker-compose).
@@ -94,7 +183,9 @@ add_repositories() {
     if hb_download "https://cli.github.com/packages/githubcli-archive-keyring.gpg" \
         "$gh_key_tmp" "${HONEY_BADGER_GITHUB_CLI_KEY_SHA256:-}"; then
         if [[ -s "$gh_key_tmp" ]]; then
-            hb_sudo cp "$gh_key_tmp" /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || {
+            # apt reads keyrings as the unprivileged _apt user, so the download
+            # must not keep mktemp's 0600 mode.
+            hb_sudo install -m 0644 "$gh_key_tmp" /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || {
                 log_warning "Failed to install the GitHub CLI keyring"
                 hb_json_add_error "GitHub CLI keyring install failed"
             }
@@ -107,22 +198,7 @@ add_repositories() {
 
     # VS Code repository (if not using Snap)
     if ! snap list code >/dev/null 2>&1; then
-        log_info "Adding VS Code repository..."
-        local gpg_tmp
-        gpg_tmp="$(mktemp)"
-        hb_register_temp "$gpg_tmp"
-        if hb_download "https://packages.microsoft.com/keys/microsoft.asc" "$gpg_tmp" \
-            "${HONEY_BADGER_VSCODE_KEY_SHA256:-}"; then
-            if [[ -s "$gpg_tmp" ]]; then
-                gpg --batch --yes --dearmor <"$gpg_tmp" \
-                    | hb_sudo tee /etc/apt/trusted.gpg.d/packages.microsoft.gpg >/dev/null
-                hb_sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
-            fi
-        else
-            log_warning "Failed to download the VS Code signing key"
-            hb_json_add_error "VS Code key download failed"
-        fi
-        rm -f "$gpg_tmp"
+        _hb_add_vscode_repository
     fi
 
     hb_sudo apt update
@@ -153,7 +229,9 @@ install_apt_packages() {
         fi
     done
     if [[ ${#available_packages[@]} -gt 0 ]]; then
-        if hb_sudo apt install -y "${available_packages[@]}"; then
+        if hb_sudo apt install -y \
+            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+            "${available_packages[@]}"; then
             for p in "${available_packages[@]}"; do hb_json_add_package "$p"; done
             hb_outcome "Would install $package_type packages" "Installed $package_type packages"
         else
@@ -213,7 +291,7 @@ install_flatpak_packages() {
     if [[ ${#packages_ref[@]} -eq 0 ]]; then return 0; fi
     hb_next_step "Installing $package_type Flatpak packages..."
     for package in "${packages_ref[@]}"; do
-        if flatpak list 2>/dev/null | grep -q "$package"; then
+        if flatpak list 2>/dev/null | grep -qF "$package"; then
             log_info "$package already installed"
             continue
         fi
@@ -261,6 +339,18 @@ install_packages_by_type() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
+    hb_init_distro_log "debian"
+
+    # Data lives in config/packages/debian.conf so package changes are reviewable
+    # without touching shell logic. Loaded into BASE_PACKAGES, DEVELOPER_PACKAGES, …
+    hb_load_package_manifest "$HONEY_BADGER_ROOT/config/packages/debian.conf"
+
+    if is_noninteractive; then
+        # Never stop for a debconf or config-file question in unattended runs.
+        export DEBIAN_FRONTEND=noninteractive
+        export APT_LISTCHANGES_FRONTEND=none
+    fi
+
     echo "Ratel Forge - Debian/Ubuntu Installation Log" > "$LOG_FILE"
     echo "Started: $(date)" >> "$LOG_FILE"
     hb_json_init
@@ -299,4 +389,6 @@ main() {
     show_post_install
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

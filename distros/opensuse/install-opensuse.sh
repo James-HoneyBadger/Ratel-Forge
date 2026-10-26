@@ -77,11 +77,23 @@ setup_packman() {
     if [[ -f /etc/os-release ]]; then
         source /etc/os-release
         local repo_url=""
-        if [[ "$ID" == "opensuse-tumbleweed" ]] || [[ "${VERSION_ID:-}" == "" ]]; then
-            repo_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/"
-        else
-            repo_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Leap_${VERSION_ID}/"
-        fi
+        case "${ID:-}" in
+            sles|sled|sle-micro)
+                # Packman publishes no repository for SUSE Linux Enterprise.
+                log_warning "Packman has no repository for ${ID}; skipping codecs"
+                return 0
+                ;;
+            opensuse-tumbleweed|opensuse-microos)
+                repo_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/"
+                ;;
+            *)
+                if [[ -z "${VERSION_ID:-}" ]]; then
+                    repo_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/"
+                else
+                    repo_url="https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Leap_${VERSION_ID}/"
+                fi
+                ;;
+        esac
         if ! zypper repos | grep -qi packman; then
             hb_sudo zypper ar -cfp 90 "$repo_url" packman 2>/dev/null || true
             hb_sudo zypper --non-interactive refresh 2>/dev/null || true

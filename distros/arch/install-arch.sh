@@ -34,8 +34,9 @@ check_arch_system() {
 # ── System update ────────────────────────────────────────────────────────────
 update_system() {
     hb_next_step "Updating system packages..."
-    hb_sudo pacman -Sy --noconfirm
-    hb_sudo pacman -Su --noconfirm
+    # -Syu in one call: refreshing the database separately (-Sy) leaves a
+    # window where packages can be installed against a newer database.
+    hb_sudo pacman -Syu --noconfirm
     hb_outcome "Would update system packages" "System updated successfully"
 }
 
